@@ -26,6 +26,11 @@
   .dpad .btn[data-k="down"]{grid-column:2;grid-row:3}
   #jump-btn{width:86px;height:86px;border-radius:50%;font-size:13px;background:rgba(100,255,180,.2);border-color:rgba(100,255,180,.8);color:#64ffb4;letter-spacing:1px;text-shadow:1px 1px 0 #1a1040}
   #jump-btn.active{background:rgba(100,255,180,.7);color:#1a1040}
+  /* Level 6 river controls — two big arrows on the right */
+  #river-controls{position:absolute;right:18px;bottom:18px;display:flex;flex-direction:column;gap:14px;z-index:7;pointer-events:none}
+  #river-controls.hidden{display:none}
+  .river-btn{pointer-events:auto;width:96px;height:96px;border-radius:50%;background:rgba(123,104,238,.3);border:3px solid rgba(123,104,238,.9);color:#fff;font-size:44px;font-weight:bold;font-family:inherit;touch-action:none;display:flex;align-items:center;justify-content:center;text-shadow:2px 2px 4px #1a1040;box-shadow:0 0 18px rgba(123,104,238,.5)}
+  .river-btn.active{background:rgba(123,104,238,.85);transform:scale(.94)}
   #overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(26,16,64,.96);color:#fff;text-align:center;padding:20px;z-index:10;overflow-y:auto}
   #overlay.hidden{display:none}
   #overlay h1{color:#ffd700;font-size:2em;letter-spacing:4px;margin-bottom:6px;text-shadow:3px 3px 0 #1a1040,0 0 20px #ffd700}
@@ -81,6 +86,10 @@
     </div>
     <div class="btn" id="jump-btn" data-k="jump">JUMP</div>
   </div>
+  <div id="river-controls" class="hidden">
+    <button class="river-btn" id="river-up">▲</button>
+    <button class="river-btn" id="river-down">▼</button>
+  </div>
   <div id="overlay"></div>
 </div>
 
@@ -116,6 +125,9 @@ const hudPtsEl = document.getElementById('hud-pts');
 const hudLivesEl = document.getElementById('hud-lives');
 const touchEl = document.getElementById('touch');
 const jumpBtnEl = document.getElementById('jump-btn');
+const riverControlsEl = document.getElementById('river-controls');
+const riverUpBtn = document.getElementById('river-up');
+const riverDownBtn = document.getElementById('river-down');
 
 function fitCanvas(){
   const s = Math.min(window.innerWidth / W, window.innerHeight / H);
@@ -127,19 +139,72 @@ window.addEventListener('orientationchange', () => setTimeout(fitCanvas, 120));
 fitCanvas();
 
 // ============================================================
-// STATE
+// STATE — playerId persisted in localStorage
 // ============================================================
+function getOrCreatePlayerId(){
+  try{
+    let pid = localStorage.getItem('shoptorshi_pid');
+    if(!pid){
+      pid = 'p_' + Math.random().toString(36).slice(2,11) + '_' + Date.now().toString(36);
+      localStorage.setItem('shoptorshi_pid', pid);
+    }
+    return pid;
+  }catch(e){
+    return 'p_' + Math.random().toString(36).slice(2,11);
+  }
+}
+
 const G = {
   screen: 'volume',
   lives: 7,
   points: 0,
   unlocked: [true,false,false,false,false,false,false],
   completed:[false,false,false,false,false,false,false],
-  playerId: 'p_'+Math.random().toString(36).slice(2,11)
+  playerId: getOrCreatePlayerId(),
+  online: false
 };
 let levelIdx = 0;
 let L = null;
 let wonThisSession = false;
+
+// ============================================================
+// GOOGLE SHEETS SYNC
+// ============================================================
+async function apiGet(params){
+  const q = new URLSearchParams(params).toString();
+  const url = API + '?' + q;
+  try{
+    const res = await fetch(url, { method: 'GET' });
+    return await res.json();
+  }catch(e){
+    console.warn('API error', e);
+    return null;
+  }
+}
+
+async function loadPlayerFromCloud(){
+  const data = await apiGet({ action: 'getPlayer', playerId: G.playerId });
+  if(!data || !data.success) return;
+  G.points = data.totalPoints || 0;
+  G.online = true;
+  // Apply unlocked levels
+  if(Array.isArray(data.levelsUnlocked)){
+    for(let i=0;i<7;i++){
+      if(data.levelsUnlocked[i]) G.unlocked[i] = true;
+    }
+  }
+  refreshHUD();
+}
+
+function syncScoreToCloud(points){
+  if(!G.online) return;
+  apiGet({ action: 'updateScore', playerId: G.playerId, points: points });
+}
+
+function syncUnlockToCloud(level){
+  if(!G.online) return;
+  apiGet({ action: 'unlockLevel', playerId: G.playerId, level: level });
+}
 
 // ============================================================
 // PARTICLE FX
@@ -270,6 +335,7 @@ function showVolumeNotice(){
   G.screen = 'volume';
   hudEl.classList.add('hidden');
   touchEl.classList.add('hidden');
+  riverControlsEl.classList.add('hidden');
   destroyLevel();
   stopAllMusic();
 
@@ -307,7 +373,8 @@ function showLoading(){
 async function bootLoad(){
   showLoading();
   try{ await loadAssets(); }catch(e){ console.error(e); }
-  showMenu();
+  // Sync cloud data (non-blocking for offline play)
+  loadPlayerFromCloud().finally(()=> showMenu());
 }
 
 function showMenu(){
@@ -317,6 +384,7 @@ function showMenu(){
   FX.reset();
   hudEl.classList.add('hidden');
   touchEl.classList.add('hidden');
+  riverControlsEl.classList.add('hidden');
   destroyLevel();
   releaseAllButtons();
 
@@ -332,11 +400,13 @@ function showMenu(){
       <small>${goal.target} ${goal.label.toLowerCase()}</small>
     </div>`;
   }
+  const syncLabel = G.online ? '☁ SYNCED' : '☁ OFFLINE';
   showOverlay(`
     <h1>SHOPTORSHI</h1>
     <p>7 lives per level · 7 mini games</p>
     <div class="grid">${grid}</div>
     <p style="margin-top:14px;font-size:.75em">Earn 7 points in a level to unlock the next</p>
+    <p style="margin-top:6px;font-size:.7em;color:${G.online?'#64ffb4':'#8878b8'}">${syncLabel} · ★ ${G.points}</p>
     <div class="btn-row" style="margin-top:12px">
       <button class="obtn" id="btn-jukebox">🎵 JUKEBOX</button>
     </div>
@@ -354,6 +424,7 @@ function showJukebox(){
   stopAllMusic();
   hudEl.classList.add('hidden');
   touchEl.classList.add('hidden');
+  riverControlsEl.classList.add('hidden');
   destroyLevel();
   releaseAllButtons();
 
@@ -402,6 +473,7 @@ function showComplete(firstTime = true){
   G.screen = 'complete';
   hudEl.classList.add('hidden');
   touchEl.classList.add('hidden');
+  riverControlsEl.classList.add('hidden');
   stopAllMusic();
   releaseAllButtons();
   FX.reset();
@@ -462,6 +534,7 @@ function showGameOver(){
   G.screen = 'gameover';
   hudEl.classList.add('hidden');
   touchEl.classList.add('hidden');
+  riverControlsEl.classList.add('hidden');
   stopAllMusic();
   releaseAllButtons();
   FX.reset();
@@ -482,6 +555,7 @@ function showFinalEnd(){
   G.screen = 'gameover';
   hudEl.classList.add('hidden');
   touchEl.classList.add('hidden');
+  riverControlsEl.classList.add('hidden');
   stopAllMusic();
   releaseAllButtons();
   FX.reset();
@@ -512,13 +586,17 @@ function startLevel(idx){
   hideOverlay();
   hudEl.classList.remove('hidden');
 
-  const needsDpad = idx === 1 || idx === 6;
-  if(needsDpad){
+  // Hide all controls first
+  touchEl.classList.add('hidden');
+  riverControlsEl.classList.add('hidden');
+  jumpBtnEl.style.display = 'none';
+
+  if(idx === 1){
     touchEl.classList.remove('hidden');
-    jumpBtnEl.style.display = (idx === 1 ? 'flex' : 'none');
-  } else {
-    touchEl.classList.add('hidden');
-    jumpBtnEl.style.display = 'none';
+    jumpBtnEl.style.display = 'flex';
+  } else if(idx === 5){
+    // Level 6 — river: only up/down arrows
+    riverControlsEl.classList.remove('hidden');
   }
 
   G.lives = 7;
@@ -551,10 +629,9 @@ function completeLevel(){
     if(levelIdx < 6) G.unlocked[levelIdx + 1] = true;
     G.points += reward;
     refreshHUD();
-    try{
-      fetch(API+'?action=updateScore&playerId='+G.playerId+'&points='+reward).catch(()=>{});
-      if(levelIdx < 6) fetch(API+'?action=unlockLevel&playerId='+G.playerId+'&level='+(levelIdx+2)).catch(()=>{});
-    }catch(e){}
+    // Cloud sync (non-blocking)
+    syncScoreToCloud(reward);
+    if(levelIdx < 6) syncUnlockToCloud(levelIdx + 2);
   }
   showComplete(firstTime);
 }
@@ -654,8 +731,28 @@ function bindBtn(el){
 }
 document.querySelectorAll('#touch .btn').forEach(bindBtn);
 
+// River (Level 6) buttons
+function bindRiverBtn(el, fnName){
+  const press = (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    el.classList.add('active');
+    if(L && L[fnName]) L[fnName]();
+  };
+  const release = (e)=>{
+    e.preventDefault();
+    el.classList.remove('active');
+  };
+  el.addEventListener('pointerdown', press);
+  el.addEventListener('pointerup', release);
+  el.addEventListener('pointercancel', release);
+  el.addEventListener('pointerleave', release);
+}
+bindRiverBtn(riverUpBtn, 'hopUp');
+bindRiverBtn(riverDownBtn, 'hopDown');
+
 function releaseAllButtons(){
-  document.querySelectorAll('#touch .btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('#touch .btn, .river-btn').forEach(b=>b.classList.remove('active'));
   if(L && L.keys){
     L.keys.left = L.keys.right = L.keys.up = L.keys.down = L.keys.jump = false;
   }
@@ -1552,7 +1649,7 @@ function Level5(){
 }
 
 // ============================================================
-// LEVEL 6: RIVER CROSSING — character floats with logs
+// LEVEL 6: RIVER — floating logs + mobile arrow buttons
 // ============================================================
 function Level6(){
   const COLS = 15, ROWS = 20;
@@ -1565,11 +1662,8 @@ function Level6(){
     row: START_ROW,
     hopFromRow: START_ROW,
     hopProgress: 1,
-    // Character's horizontal position — floats with logs
     px: W/2,
-    // Reference to the log currently being ridden (null if on grass)
     ridingLog: null,
-    // Store the offset from the log's left edge so the character stays put on the log
     logOffsetX: 0,
     time: 0,
     rowTypes: [],
@@ -1610,7 +1704,6 @@ function Level6(){
   }
   initLogs();
 
-  // Find log under character's current x position
   function findLogUnder(row, px){
     for(const log of st.logs){
       if(log.row !== row) continue;
@@ -1627,7 +1720,6 @@ function Level6(){
     st.hopFromRow = st.row;
     st.row = newRow;
     st.hopProgress = 0;
-    // Clear riding log when hopping
     st.ridingLog = null;
     if(st.row < st.furthestRow) st.furthestRow = st.row;
   }
@@ -1636,7 +1728,6 @@ function Level6(){
     st.hurtF = 1;
     st.invuln = 1.5;
     if(loseLife()){ st.ended = true; return; }
-    // Respawn at last safe (grass) row
     let safeRow = st.row;
     while(safeRow < ROWS && st.rowTypes[safeRow] === 'river') safeRow++;
     if(safeRow >= ROWS) safeRow = START_ROW;
@@ -1672,18 +1763,14 @@ function Level6(){
         st.hopProgress = Math.min(1, st.hopProgress + dt / HOP_TIME);
       }
 
-      // Move logs
       for(const log of st.logs){
         log.x += log.vx * dt;
         if(log.vx > 0 && log.x > W + 40) log.x = -log.w - 20;
         if(log.vx < 0 && log.x + log.w < -40) log.x = W + 20;
       }
 
-      // --- FLOATING LOG LOGIC ---
-      // Once hop is done and we're on a river row, follow the log we're on
       if(st.hopProgress >= 1 && st.rowTypes[st.row] === 'river'){
         if(!st.ridingLog){
-          // Just landed on river — find a log under our feet
           const log = findLogUnder(st.row, st.px);
           if(log){
             st.ridingLog = log;
@@ -1691,30 +1778,24 @@ function Level6(){
           }
         }
         if(st.ridingLog){
-          // Follow the log
           if(st.ridingLog.row !== st.row){
-            // Log moved to another row (shouldn't happen, but safety)
             st.ridingLog = null;
           } else {
             st.px = st.ridingLog.x + st.logOffsetX;
-            // If log carries us off-screen, drown
             if(st.px < -10 || st.px > W + 10){
               if(st.invuln <= 0){ drown(); return; }
             }
           }
         } else {
-          // No log under feet — drown
           if(st.invuln <= 0){ drown(); return; }
         }
       } else if(st.hopProgress >= 1 && st.rowTypes[st.row] !== 'river'){
-        // On grass — clear riding state, reset x to center smoothly
         st.ridingLog = null;
         const dx = (W/2) - st.px;
         st.px += dx * Math.min(1, dt * 8);
         if(Math.abs(dx) < 0.5) st.px = W/2;
       }
 
-      // Reached goal
       if(st.row === GOAL_ROW && st.hopProgress >= 1 && !wonThisSession){
         st.ended = true;
         FX.spawn(st.px, 70, 30, '#64ffb4', {speed: 220, life: 1.0});
@@ -1803,7 +1884,6 @@ function Level6(){
         }
       }
 
-      // Draw logs
       for(const log of st.logs){
         const y = log.row * TILE + 4;
         const h = TILE - 8;
@@ -1822,7 +1902,6 @@ function Level6(){
         ctx.fillRect(log.x + 6, y, log.w - 12, 3);
       }
 
-      // Player — uses st.px for horizontal position (floats with log)
       const fromY = st.hopFromRow * TILE + TILE/2;
       const toY = st.row * TILE + TILE/2;
       const t = st.hopProgress;
@@ -1934,6 +2013,7 @@ function Level7(){
         G.completed[6] = true;
         G.points += LEVEL_GOALS[6].reward;
         refreshHUD();
+        syncScoreToCloud(LEVEL_GOALS[6].reward);
       }
     }
     showFinalEnd();
