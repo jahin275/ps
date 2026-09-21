@@ -26,7 +26,6 @@
   .dpad .btn[data-k="down"]{grid-column:2;grid-row:3}
   #jump-btn{width:86px;height:86px;border-radius:50%;font-size:13px;background:rgba(100,255,180,.2);border-color:rgba(100,255,180,.8);color:#64ffb4;letter-spacing:1px;text-shadow:1px 1px 0 #1a1040}
   #jump-btn.active{background:rgba(100,255,180,.7);color:#1a1040}
-  /* Level 6 river controls — two big arrows on the right */
   #river-controls{position:absolute;right:18px;bottom:18px;display:flex;flex-direction:column;gap:14px;z-index:7;pointer-events:none}
   #river-controls.hidden{display:none}
   .river-btn{pointer-events:auto;width:96px;height:96px;border-radius:50%;background:rgba(123,104,238,.3);border:3px solid rgba(123,104,238,.9);color:#fff;font-size:44px;font-weight:bold;font-family:inherit;touch-action:none;display:flex;align-items:center;justify-content:center;text-shadow:2px 2px 4px #1a1040;box-shadow:0 0 18px rgba(123,104,238,.5)}
@@ -139,7 +138,7 @@ window.addEventListener('orientationchange', () => setTimeout(fitCanvas, 120));
 fitCanvas();
 
 // ============================================================
-// STATE — playerId persisted in localStorage
+// STATE — playerId persisted
 // ============================================================
 function getOrCreatePlayerId(){
   try{
@@ -187,7 +186,6 @@ async function loadPlayerFromCloud(){
   if(!data || !data.success) return;
   G.points = data.totalPoints || 0;
   G.online = true;
-  // Apply unlocked levels
   if(Array.isArray(data.levelsUnlocked)){
     for(let i=0;i<7;i++){
       if(data.levelsUnlocked[i]) G.unlocked[i] = true;
@@ -373,7 +371,6 @@ function showLoading(){
 async function bootLoad(){
   showLoading();
   try{ await loadAssets(); }catch(e){ console.error(e); }
-  // Sync cloud data (non-blocking for offline play)
   loadPlayerFromCloud().finally(()=> showMenu());
 }
 
@@ -592,11 +589,18 @@ function startLevel(idx){
   jumpBtnEl.style.display = 'none';
 
   if(idx === 1){
+    // Level 2 — platformer: D-pad + JUMP
     touchEl.classList.remove('hidden');
     jumpBtnEl.style.display = 'flex';
+    jumpBtnEl.textContent = 'JUMP';
   } else if(idx === 5){
     // Level 6 — river: only up/down arrows
     riverControlsEl.classList.remove('hidden');
+  } else if(idx === 6){
+    // Level 7 — JRPG room: D-pad + PICK
+    touchEl.classList.remove('hidden');
+    jumpBtnEl.style.display = 'flex';
+    jumpBtnEl.textContent = 'PICK';
   }
 
   G.lives = 7;
@@ -629,7 +633,6 @@ function completeLevel(){
     if(levelIdx < 6) G.unlocked[levelIdx + 1] = true;
     G.points += reward;
     refreshHUD();
-    // Cloud sync (non-blocking)
     syncScoreToCloud(reward);
     if(levelIdx < 6) syncUnlockToCloud(levelIdx + 2);
   }
@@ -717,7 +720,11 @@ function bindBtn(el){
     e.stopPropagation();
     el.classList.add('active');
     if(L && L.keys) L.keys[key] = true;
-    if(L && key === 'jump' && L.jump) L.jump();
+    // Special: the round button doubles as JUMP or PICK
+    if(L && key === 'jump'){
+      if(L.jump) L.jump();
+      else if(L.pick) L.pick();
+    }
   };
   const release = (e)=>{
     e.preventDefault();
@@ -731,7 +738,7 @@ function bindBtn(el){
 }
 document.querySelectorAll('#touch .btn').forEach(bindBtn);
 
-// River (Level 6) buttons
+// River buttons
 function bindRiverBtn(el, fnName){
   const press = (e)=>{
     e.preventDefault();
@@ -913,7 +920,7 @@ function Level1(){
 }
 
 // ============================================================
-// LEVEL 2: PLATFORMER — endless void at bottom
+// LEVEL 2: PLATFORMER
 // ============================================================
 function Level2(){
   const GRAV = 1000, MOVE = 215, JUMP = -435, LEVEL_W = 2400;
@@ -1649,7 +1656,7 @@ function Level5(){
 }
 
 // ============================================================
-// LEVEL 6: RIVER — floating logs + mobile arrow buttons
+// LEVEL 6: RIVER — floating logs
 // ============================================================
 function Level6(){
   const COLS = 15, ROWS = 20;
@@ -2053,6 +2060,7 @@ function Level7(){
 
   return {
     keys: st.keys,
+    pick: pick,
     init(){
       document.addEventListener('keydown', onKD);
       document.addEventListener('keyup', onKU);
