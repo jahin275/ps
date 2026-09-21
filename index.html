@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>Shoptorshi Game — JRPG Edition</title>
+<title>Shoptorshi Game</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
   html,body{height:100%;overflow:hidden;background:#1a1040;font-family:'Courier New',monospace;touch-action:none;overscroll-behavior:none}
@@ -58,7 +58,6 @@
   @keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
   .speaker{font-size:3em;margin-bottom:12px;animation:shake .6s infinite}
   @keyframes shake{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(6deg)}}
-  .pixel-cloud{position:absolute;image-rendering:pixelated;opacity:.15;pointer-events:none;z-index:0}
 </style>
 </head>
 <body>
@@ -89,6 +88,7 @@
 const W = 480, H = 640;
 const API = 'https://script.google.com/macros/s/AKfycbyiZJwtCwv8ogplxQx5xlL7nERISw0hxSdViNN3UBsdp_dXFfSrKPOA1ah52BeMFLeW/exec';
 
+// Each level: you need `target` actions to complete it and earn `reward` points
 const LEVEL_GOALS = {
   0: { target: 7,  reward: 7,  label: 'Pipes' },
   1: { target: 7,  reward: 7,  label: 'Princess' },
@@ -100,7 +100,6 @@ const LEVEL_GOALS = {
 };
 
 const LEVEL_ICONS = ['🐦','🍄','🐍','💃','🎰','⛵','🏠'];
-const LEVEL_NAMES = ['Flappy','Princess','Hacker','Dance','777','Boat','Home'];
 
 // ============================================================
 // DOM
@@ -337,7 +336,7 @@ function showMenu(){
     <h1>SHOPTORSHI</h1>
     <p>7 lives per level · 7 mini games</p>
     <div class="grid">${grid}</div>
-    <p style="margin-top:14px;font-size:.75em">Beat each level's goal to unlock the next</p>
+    <p style="margin-top:14px;font-size:.75em">Earn 7 points in a level to unlock the next</p>
   `);
 
   overlayEl.querySelectorAll('.lvl').forEach(el=>{
@@ -368,6 +367,7 @@ function showComplete(firstTime = true){
   showOverlay(`
     <h2>LEVEL ${levelIdx+1} COMPLETE!</h2>
     <p>${rewardText}</p>
+    ${hasNext ? '<p style="color:#64ffb4">🔓 New level unlocked!</p>' : ''}
     <div class="btn-row">
       ${keepBtn}
       ${nextBtn}
@@ -446,15 +446,11 @@ function startLevel(idx){
     jumpBtnEl.style.display = 'none';
   }
 
-  // Level 1: infinite lives
-  if(idx === 0){
-    G.lives = Infinity;
-    hudLivesEl.textContent = '❤ ∞';
-  } else {
-    G.lives = 7;
-    refreshHUD();
-  }
+  // Reset lives
+  G.lives = 7;
+  refreshHUD();
 
+  // Play music (Level 7 plays only when phone is picked)
   if(idx !== 6) playMusic(idx + 1, true);
 
   L = LEVEL_FACTORIES[idx]();
@@ -469,6 +465,9 @@ function destroyLevel(){
   L = null;
 }
 
+// ============================================================
+// COMPLETE LEVEL — awards points and unlocks next
+// ============================================================
 function completeLevel(){
   if(G.screen !== 'playing') return;
   if(wonThisSession) return;
@@ -492,8 +491,6 @@ function completeLevel(){
 
 function loseLife(){
   if(G.screen !== 'playing') return true;
-  // Level 1: infinite lives
-  if(levelIdx === 0) return false;
   G.lives--;
   refreshHUD();
   FX.shake(10, 0.3);
@@ -524,8 +521,8 @@ function loop(t){
   ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, W, H);
 
-  // Global moving pixel clouds (JRPG style)
-  drawGlobalClouds(ctx, t);
+  // Global moving pixel clouds
+  drawGlobalClouds(ctx);
 
   if(G.screen === 'playing' && L){
     ctx.save();
@@ -551,7 +548,7 @@ for(let i=0;i<8;i++){
     layer: Math.random()
   });
 }
-function drawGlobalClouds(ctx, t){
+function drawGlobalClouds(ctx){
   for(const c of globalClouds){
     c.x += c.speed * 0.016;
     if(c.x > W + 150) c.x = -150;
@@ -608,7 +605,7 @@ canvas.addEventListener('contextmenu', e=>e.preventDefault());
 document.addEventListener('touchmove', e=>{ if(e.target === canvas) e.preventDefault(); }, {passive:false});
 
 // ============================================================
-// LEVEL 1: FLAPPY — infinite lives, play indefinitely
+// LEVEL 1: FLAPPY — 7 points to complete, infinite play after
 // ============================================================
 function Level1(){
   const GRAV = 1300, FLAP = -380, PIPE_W = 62, GAP = 168, SPEED = 170;
@@ -627,10 +624,11 @@ function Level1(){
   function hurt(){
     st.hurtFlash = 1;
     st.combo = 0;
-    // Level 1: never lose a life — just reset
+    if(loseLife()) return true;
     st.bird.x = 110; st.bird.y = H/2; st.bird.vy = 0; st.bird.rot = 0;
     st.pipes = []; st.spawnT = 0;
-    st.invuln = 1.2;
+    st.invuln = 1.0;
+    return false;
   }
   const onKey = (e)=>{
     if(G.screen !== 'playing') return;
@@ -670,8 +668,11 @@ function Level1(){
           st.passed++;
           st.combo++;
           FX.spawn(st.bird.x, st.bird.y, 6, '#ffd700', {speed: 100, life: 0.5});
-          // Level 1: never complete — play indefinitely
-          // (completeLevel is intentionally not called)
+          // Complete at 7 pipes — but only once
+          if(st.passed >= TARGET && !wonThisSession){
+            completeLevel();
+            return;
+          }
         }
       }
 
@@ -689,14 +690,12 @@ function Level1(){
       if(hit){ FX.spawn(st.bird.x, st.bird.y, 12, '#ff6688', {speed: 180, life: 0.6}); hurt(); }
     },
     draw(ctx){
-      // JRPG sky
       const g = ctx.createLinearGradient(0,0,0,H);
       g.addColorStop(0,'#2a1a5e');
       g.addColorStop(.5,'#3a2a7e');
       g.addColorStop(1,'#4a3a9e');
       ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
 
-      // Moving pixel clouds
       ctx.fillStyle = 'rgba(200,190,255,.12)';
       for(let i=0;i<6;i++){
         const x = (i*140 + performance.now()*0.04) % (W+160) - 80;
@@ -714,7 +713,6 @@ function Level1(){
         ctx.fillStyle = '#3acc8a';
         ctx.fillRect(p.x-5, p.gapY-18, PIPE_W+10, 18);
         ctx.fillRect(p.x-5, p.gapY+GAP, PIPE_W+10, 18);
-        // Pipe highlights
         ctx.fillStyle = 'rgba(255,255,255,.15)';
         ctx.fillRect(p.x+4, 0, 6, p.gapY);
         ctx.fillRect(p.x+4, p.gapY+GAP, 6, H-p.gapY-GAP);
@@ -732,13 +730,12 @@ function Level1(){
       }
       ctx.restore();
 
-      // JRPG-style score
       ctx.fillStyle = '#ffd700'; ctx.font = 'bold 22px Courier New'; ctx.textAlign = 'center';
-      ctx.shadowColor = '#1a1040'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
-      ctx.fillText(`${st.passed}`, W/2, 45);
+      ctx.shadowColor = '#1a1040'; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
+      ctx.fillText(`${Math.min(TARGET, st.passed)}/${TARGET}`, W/2, 45);
       ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
       ctx.fillStyle = '#b8a8e8'; ctx.font = '11px Courier New';
-      ctx.fillText('∞ lives · play forever', W/2, 64);
+      ctx.fillText('Pipes · 7 = win', W/2, 64);
 
       if(st.hurtFlash>0){
         ctx.fillStyle = `rgba(255,100,100,${st.hurtFlash*0.3})`;
@@ -811,7 +808,6 @@ function Level2(){
     return false;
   }
   function pitfall(){
-    // Fell into the pit — lose a life and respawn
     st.hurtF = 1; st.invuln = 1.5;
     if(loseLife()) return true;
     st.p.x = 50; st.p.y = 400; st.p.vx = 0; st.p.vy = 0;
@@ -850,18 +846,15 @@ function Level2(){
       st.p.y += st.p.vy*dt;
       st.p.onGround = false;
 
-      // Platform collision
-      let landed = false;
       for(const pl of st.platforms){
         if(st.p.x + 20 > pl.x && st.p.x < pl.x + pl.w){
           if(st.p.vy >= 0 && st.p.y + 30 > pl.y && st.p.y + 30 < pl.y + pl.h + 20){
             st.p.y = pl.y - 30; st.p.vy = 0; st.p.onGround = true;
-            landed = true;
           }
         }
       }
 
-      // PITFALL: if player falls below the level
+      // PITFALL
       if(st.p.y > H + 50){
         if(pitfall()) return;
         return;
@@ -873,7 +866,6 @@ function Level2(){
       st.p.animT += dt;
       if(st.p.animT > 0.14){ st.p.animT = 0; st.p.anim = (st.p.anim+1)%3; }
 
-      // Enemies — stomp if falling onto them, else hurt
       for(const e of st.enemies){
         if(!e.alive) continue;
         e.x += e.spd * e.dir * dt;
@@ -905,14 +897,12 @@ function Level2(){
       }
     },
     draw(ctx){
-      // JRPG indigo sky
       const g = ctx.createLinearGradient(0,0,0,H);
       g.addColorStop(0,'#1a1040');
       g.addColorStop(.6,'#2a1a5e');
       g.addColorStop(1,'#3a2a7e');
       ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
 
-      // Moving pixel clouds
       ctx.fillStyle = 'rgba(200,190,255,.08)';
       for(let i=0;i<5;i++){
         const x = (i*170 + performance.now()*0.03) % (W+180) - 90;
@@ -926,7 +916,6 @@ function Level2(){
       ctx.save();
       ctx.translate(-st.camX, 0);
 
-      // Platforms — JRPG stone style
       for(const pl of st.platforms){
         if(pl.x + pl.w < st.camX || pl.x > st.camX + W) continue;
         ctx.fillStyle = '#4a3a8e';
@@ -935,14 +924,12 @@ function Level2(){
         ctx.fillRect(pl.x, pl.y, pl.w, 5);
         ctx.fillStyle = '#2a1a5e';
         ctx.fillRect(pl.x, pl.y + pl.h - 4, pl.w, 4);
-        // Stone texture
         ctx.fillStyle = 'rgba(123,104,238,.2)';
         for(let sx = pl.x; sx < pl.x + pl.w; sx += 40){
           ctx.fillRect(sx + 4, pl.y + 8, 32, 3);
         }
       }
 
-      // Enemies — JRPG slime style
       for(const e of st.enemies){
         if(!e.alive) continue;
         if(e.x + e.w < st.camX || e.x > st.camX + W) continue;
@@ -952,11 +939,9 @@ function Level2(){
         ctx.fillRect(e.x + 2, e.y + 2, e.w - 4, e.h/2);
         ctx.fillStyle = '#fff'; ctx.fillRect(e.x+5,e.y+8,8,8); ctx.fillRect(e.x+17,e.y+8,8,8);
         ctx.fillStyle = '#1a1040'; ctx.fillRect(e.x+7,e.y+10,4,4); ctx.fillRect(e.x+19,e.y+10,4,4);
-        // Mouth
         ctx.fillStyle = '#1a1040'; ctx.fillRect(e.x+10, e.y+20, 10, 3);
       }
 
-      // Princess
       if(!st.princess.gone){
         ctx.fillStyle = '#ff88cc'; ctx.fillRect(st.princess.x, st.princess.y, 25, 40);
         ctx.fillStyle = '#ffd700'; ctx.fillRect(st.princess.x+5, st.princess.y-10, 15, 15);
@@ -968,14 +953,12 @@ function Level2(){
         ctx.lineTo(st.princess.x+17,  st.princess.y-27);
         ctx.lineTo(st.princess.x+24,  st.princess.y-15);
         ctx.fill();
-        // Sparkle
         const sp = 0.5 + Math.sin(st.time*4)*0.5;
         ctx.fillStyle = `rgba(255,255,200,${sp})`;
         ctx.fillRect(st.princess.x + 10, st.princess.y - 40, 4, 4);
         ctx.fillRect(st.princess.x + 18, st.princess.y - 45, 3, 3);
       }
 
-      // Player
       ctx.save();
       ctx.translate(st.p.x + 10, st.p.y + 15);
       ctx.scale(st.p.facing, 1);
@@ -993,7 +976,6 @@ function Level2(){
       ctx.restore();
       ctx.restore();
 
-      // Progress bar — JRPG style
       const prog = Math.min(1, st.p.x / 2270);
       ctx.fillStyle = 'rgba(26,16,64,.8)';
       ctx.fillRect(20, 18, W-40, 10);
@@ -1010,7 +992,6 @@ function Level2(){
       ctx.fillText(`ROAD TO HAPPINESS · Stomped ${st.killed}/7`, W/2, 14);
       ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
 
-      // Pit warning
       if(st.p.y > H - 100 && st.p.x > 100){
         ctx.fillStyle = `rgba(255,100,100,${0.2 + Math.sin(st.time*8)*0.1})`;
         ctx.fillRect(0, H-40, W, 40);
@@ -1097,25 +1078,22 @@ function Level3(){
       st.moveT = 0;
       st.dir = { ...st.nextDir };
 
-      // Calculate new head position with wrapping
       const head = { x: st.snake[0].x + st.dir.x, y: st.snake[0].y + st.dir.y };
       head.x = ((head.x % COLS) + COLS) % COLS;
       head.y = ((head.y % ROWS) + ROWS) % ROWS;
 
-      // Self-collision
       if(st.snake.some(s=>s.x===head.x && s.y===head.y)){
         st.flash = 1;
         if(loseLife()) return;
         st.snake = [{x:8,y:10},{x:7,y:10},{x:6,y:10}];
         st.dir = {x:1,y:0}; st.nextDir = {x:1,y:0};
-        // Ensure food is not under the snake
         if(st.snake.some(s=>s.x===st.food.x && s.y===st.food.y)) spawnFood();
         return;
       }
 
       st.snake.unshift(head);
 
-      // FIXED: Food collision — use exact integer match
+      // FIXED food collision — exact integer match
       const ateFood = (head.x === st.food.x && head.y === st.food.y);
       if(ateFood){
         st.collected++;
@@ -1129,14 +1107,12 @@ function Level3(){
       }
     },
     draw(ctx){
-      // JRPG dark indigo grid
       ctx.fillStyle = '#1a1040'; ctx.fillRect(0,0,W,H);
 
       ctx.strokeStyle = 'rgba(123,104,238,0.12)'; ctx.lineWidth = 1;
       for(let x=0;x<=COLS;x++){ ctx.beginPath(); ctx.moveTo(x*GRID,60); ctx.lineTo(x*GRID,H); ctx.stroke(); }
       for(let y=0;y<=ROWS;y++){ ctx.beginPath(); ctx.moveTo(0,60+y*GRID); ctx.lineTo(W,60+y*GRID); ctx.stroke(); }
 
-      // Snake body — JRPG green
       for(let i=st.snake.length-1;i>=0;i--){
         const s = st.snake[i];
         const a = 1 - (i/st.snake.length)*0.55;
@@ -1151,7 +1127,6 @@ function Level3(){
         ctx.shadowBlur = 0;
       }
 
-      // Snake head sprite
       const h = st.snake[0];
       if(A.still){
         ctx.save();
@@ -1160,7 +1135,6 @@ function Level3(){
         ctx.restore();
       }
 
-      // Food — JRPG laptop with glow
       const pulse = 1 + Math.sin(performance.now()/150)*0.15;
       const fx = st.food.x*GRID + GRID/2, fy = 60 + st.food.y*GRID + GRID/2;
       ctx.save();
@@ -1168,16 +1142,13 @@ function Level3(){
       ctx.fillStyle = '#ffd700';
       ctx.fillRect(fx - 9*pulse, fy - 7*pulse, 18*pulse, 14*pulse);
       ctx.restore();
-      // Laptop screen
       ctx.fillStyle = '#1a1040';
       ctx.fillRect(fx - 6, fy - 5, 12, 10);
       ctx.fillStyle = '#64ffb4';
       ctx.fillRect(fx - 4, fy - 3, 8, 6);
-      // Laptop base
       ctx.fillStyle = '#8e7a00';
       ctx.fillRect(fx - 8, fy + 5, 16, 3);
 
-      // JRPG score
       ctx.fillStyle = '#64ffb4'; ctx.font = 'bold 16px Courier New'; ctx.textAlign = 'left';
       ctx.shadowColor = '#1a1040'; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
       ctx.fillText(`Laptops: ${Math.min(TARGET, st.collected)}/${TARGET}`, 12, 26);
@@ -1290,7 +1261,6 @@ function Level4(){
       g.addColorStop(0,'#1a1040'); g.addColorStop(.5,'#2a1a5e'); g.addColorStop(1,'#3a2a7e');
       ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
 
-      // Moving pixel clouds
       ctx.fillStyle = 'rgba(200,190,255,.07)';
       for(let i=0;i<4;i++){
         const x = (i*200 + performance.now()*0.05) % (W+200) - 100;
@@ -1338,7 +1308,6 @@ function Level4(){
         ctx.restore();
       }
 
-      // Dancer
       ctx.save();
       ctx.translate(W/2, H-230);
       ctx.translate(0, Math.sin(st.time*8)*5);
@@ -1347,7 +1316,6 @@ function Level4(){
       if(A.still) ctx.drawImage(A.still, -28, -28, 56, 56);
       ctx.restore();
 
-      // JRPG score
       const scoreColor = st.score >= TARGET ? '#64ffb4' : '#ffd700';
       ctx.fillStyle = scoreColor; ctx.font = 'bold 20px Courier New'; ctx.textAlign = 'center';
       ctx.shadowColor = '#1a1040'; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
@@ -1445,7 +1413,6 @@ function Level5(){
       g.addColorStop(0,'#2a1a5e'); g.addColorStop(1,'#1a1040');
       ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
 
-      // Moving pixel clouds
       ctx.fillStyle = 'rgba(200,190,255,.06)';
       for(let i=0;i<4;i++){
         const x = (i*190 + performance.now()*0.04) % (W+200) - 100;
@@ -1456,13 +1423,11 @@ function Level5(){
       }
 
       const fx = W/2 - 130, fy = H/2 - 110;
-      // Machine outer glow
       ctx.save();
       ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 30;
       ctx.fillStyle = '#ffd700';
       ctx.fillRect(fx-12, fy-12, 284, 234);
       ctx.restore();
-      // Machine inner
       ctx.fillStyle = '#1a1040';
       ctx.fillRect(fx, fy, 260, 210);
       ctx.strokeStyle = '#7b68ee'; ctx.lineWidth = 2;
@@ -1624,7 +1589,6 @@ function Level6(){
       g.addColorStop(0,'#1a1040'); g.addColorStop(1,'#2a1a5e');
       ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
 
-      // Moving pixel clouds
       ctx.fillStyle = 'rgba(200,190,255,.06)';
       for(let i=0;i<5;i++){
         const x = (i*160 + performance.now()*0.04) % (W+180) - 90;
@@ -1657,7 +1621,6 @@ function Level6(){
         ctx.fillRect(o.x+8, o.y+12, 6, 6); ctx.fillRect(o.x+18, o.y+12, 6, 6);
       }
 
-      // Boat
       ctx.save();
       ctx.translate(st.boat.x, st.boat.y);
       if(st.invuln > 0 && Math.floor(st.time*10)%2 === 0) ctx.globalAlpha = 0.5;
@@ -1694,7 +1657,7 @@ function Level6(){
 }
 
 // ============================================================
-// LEVEL 7: JRPG ROOM
+// LEVEL 7: JRPG ROOM — final music screen
 // ============================================================
 function Level7(){
   const TILE = 32;
@@ -1749,6 +1712,15 @@ function Level7(){
     st.ended = true;
     if(st.fallback) clearTimeout(st.fallback);
     if(st.hardCap) clearTimeout(st.hardCap);
+    // Award final reward and show The End
+    if(!wonThisSession){
+      wonThisSession = true;
+      if(!G.completed[6]){
+        G.completed[6] = true;
+        G.points += LEVEL_GOALS[6].reward;
+        refreshHUD();
+      }
+    }
     showFinalEnd();
   }
   function pick(){
@@ -1830,14 +1802,12 @@ function Level7(){
       if(ddx*ddx + ddy*ddy < 1.5) pick();
     },
     draw(ctx){
-      // JRPG indigo room
       for(let ty = 0; ty < ROWS; ty++){
         for(let tx = 0; tx < COLS; tx++){
           const v = MAP[ty][tx];
           const x = tx * TILE, y = ty * TILE;
 
           if(v === 1){
-            // Wall — indigo stone
             ctx.fillStyle = '#2a1a5e';
             ctx.fillRect(x, y, TILE, TILE);
             ctx.fillStyle = '#3a2a7e';
@@ -1849,7 +1819,6 @@ function Level7(){
             ctx.fillRect(x + TILE/2 - 1, y, 2, TILE/2);
             ctx.fillRect(x + TILE/4 - 1, y+TILE/2, 2, TILE/2);
           } else if(v === 2){
-            // Bed
             ctx.fillStyle = '#4a3a8e';
             ctx.fillRect(x, y, TILE, TILE);
             ctx.fillStyle = '#7b68ee';
@@ -1861,7 +1830,6 @@ function Level7(){
               ctx.fillRect(x+4, y+4, TILE-8, 8);
             }
           } else if(v === 3){
-            // Table
             ctx.fillStyle = '#3a2a7e';
             ctx.fillRect(x, y, TILE, TILE);
             ctx.fillStyle = '#5a4aae';
@@ -1872,7 +1840,6 @@ function Level7(){
             ctx.lineTo(x+TILE-4, y+TILE/2);
             ctx.stroke();
           } else if(v === 4){
-            // Rug
             ctx.fillStyle = '#6a2a4a';
             ctx.fillRect(x, y, TILE, TILE);
             ctx.strokeStyle = '#ffd700';
@@ -1887,7 +1854,6 @@ function Level7(){
             ctx.lineTo(x+TILE-3, y+TILE/2);
             ctx.stroke();
           } else if(v === 5){
-            // Window
             ctx.fillStyle = '#2a1a5e';
             ctx.fillRect(x, y, TILE, TILE);
             ctx.fillStyle = '#0f0a2a';
@@ -1904,7 +1870,6 @@ function Level7(){
             ctx.lineWidth = 2;
             ctx.strokeRect(x+4, y+6, TILE-8, TILE-12);
           } else if(v === 6){
-            // Plant
             ctx.fillStyle = '#2a1a5e';
             ctx.fillRect(x, y, TILE, TILE);
             ctx.fillStyle = '#4a3a8e';
@@ -1919,7 +1884,6 @@ function Level7(){
             ctx.arc(x+TILE/2 + 4, y+TILE/2 - 4, 5, 0, Math.PI*2);
             ctx.fill();
           } else {
-            // Floor — indigo wood
             ctx.fillStyle = (tx + ty) % 2 === 0 ? '#2a1a5e' : '#241450';
             ctx.fillRect(x, y, TILE, TILE);
             ctx.fillStyle = 'rgba(123,104,238,.08)';
@@ -1932,7 +1896,6 @@ function Level7(){
         }
       }
 
-      // Phone on table
       const phoneTX = 12.5, phoneTY = 2.5;
       const px = phoneTX * TILE, py = phoneTY * TILE;
       if(!st.picked){
@@ -1955,7 +1918,6 @@ function Level7(){
         ctx.fill();
       }
 
-      // Character
       const cx = st.px * TILE, cy = st.py * TILE;
       ctx.save();
       ctx.translate(cx, cy);
