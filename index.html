@@ -103,7 +103,6 @@ const LEVEL_GOALS = {
 };
 
 const LEVEL_ICONS = ['🐦','🍄','🐍','💃','🎰','⛵','🏠'];
-const LEVEL_NAMES = ['Flappy','Princess','Hacker','Dance','777','River','Home'];
 
 // ============================================================
 // DOM
@@ -267,7 +266,6 @@ function hideOverlay(){
   overlayEl.innerHTML = '';
 }
 
-// ---- Volume notice ----
 function showVolumeNotice(){
   G.screen = 'volume';
   hudEl.classList.add('hidden');
@@ -293,7 +291,6 @@ function showVolumeNotice(){
   });
 }
 
-// ---- Loading ----
 function showLoading(){
   G.screen = 'loading';
   showOverlay(`
@@ -313,7 +310,6 @@ async function bootLoad(){
   showMenu();
 }
 
-// ---- Menu ----
 function showMenu(){
   G.screen = 'menu';
   wonThisSession = false;
@@ -353,8 +349,6 @@ function showMenu(){
   document.getElementById('btn-jukebox').addEventListener('click', showJukebox);
 }
 
-// ---- Jukebox (music player) ----
-let jukeboxTimer = null;
 function showJukebox(){
   G.screen = 'jukebox';
   stopAllMusic();
@@ -404,7 +398,6 @@ function showJukebox(){
   document.getElementById('btn-back').addEventListener('click', showMenu);
 }
 
-// ---- Complete ----
 function showComplete(firstTime = true){
   G.screen = 'complete';
   hudEl.classList.add('hidden');
@@ -441,7 +434,6 @@ function showComplete(firstTime = true){
   if(hasNext) document.getElementById('btn-next').addEventListener('click', ()=>startLevel(nextIdx));
   document.getElementById('btn-menu').addEventListener('click', showMenu);
 
-  // Listen to this level's soundtrack
   document.getElementById('btn-music').addEventListener('click', ()=>{
     const panel = document.getElementById('music-panel');
     if(panel.style.display === 'none'){
@@ -466,7 +458,6 @@ function showComplete(firstTime = true){
   });
 }
 
-// ---- Game Over ----
 function showGameOver(){
   G.screen = 'gameover';
   hudEl.classList.add('hidden');
@@ -487,7 +478,6 @@ function showGameOver(){
   document.getElementById('btn-menu').addEventListener('click', showMenu);
 }
 
-// ---- The End ----
 function showFinalEnd(){
   G.screen = 'gameover';
   hudEl.classList.add('hidden');
@@ -522,7 +512,6 @@ function startLevel(idx){
   hideOverlay();
   hudEl.classList.remove('hidden');
 
-  // Touch controls
   const needsDpad = idx === 1 || idx === 6;
   if(needsDpad){
     touchEl.classList.remove('hidden');
@@ -827,13 +816,12 @@ function Level1(){
 }
 
 // ============================================================
-// LEVEL 2: PLATFORMER — endless void at bottom (no bottom floor)
+// LEVEL 2: PLATFORMER — endless void at bottom
 // ============================================================
 function Level2(){
   const GRAV = 1000, MOVE = 215, JUMP = -435, LEVEL_W = 2400;
   const st = {
     p:{ x:50, y:400, vx:0, vy:0, onGround:false, facing:1, anim:0, animT:0, mode:'idle' },
-    // NO bottom floor platform — endless void
     platforms:[
       {x:0,    y:500, w:330, h:20},
       {x:390,  y:450, w:150, h:20},
@@ -931,7 +919,6 @@ function Level2(){
         }
       }
 
-      // ENDLESS VOID — if player falls below screen, they die
       if(st.p.y > H + 50){
         if(pitfall()) return;
         return;
@@ -977,10 +964,9 @@ function Level2(){
       const g = ctx.createLinearGradient(0,0,0,H);
       g.addColorStop(0,'#1a1040');
       g.addColorStop(.6,'#2a1a5e');
-      g.addColorStop(1,'#0a0520'); // darker at bottom to imply void
+      g.addColorStop(1,'#0a0520');
       ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
 
-      // Moving pixel clouds
       ctx.fillStyle = 'rgba(200,190,255,.08)';
       for(let i=0;i<5;i++){
         const x = (i*170 + performance.now()*0.03) % (W+180) - 90;
@@ -991,7 +977,6 @@ function Level2(){
         ctx.fillRect(x - s, y - s*2, s*2, s*2);
       }
 
-      // Void warning at bottom
       const voidGrad = ctx.createLinearGradient(0, H-80, 0, H);
       voidGrad.addColorStop(0, 'rgba(255,100,100,0)');
       voidGrad.addColorStop(1, 'rgba(255,50,50,0.15)');
@@ -1567,28 +1552,28 @@ function Level5(){
 }
 
 // ============================================================
-// LEVEL 6: RIVER CROSSING — only up/down (forward/back)
+// LEVEL 6: RIVER CROSSING — character floats with logs
 // ============================================================
 function Level6(){
-  // Grid: 15 columns × 20 rows. Top row = goal.
   const COLS = 15, ROWS = 20;
   const TILE = 32;
-  const START_ROW = 19;          // bottom
-  const GOAL_ROW = 0;            // top
-  const MOVE_INTERVAL = 0.22;    // seconds between auto-moves
-  const HOP_TIME = 0.18;         // visual hop duration
+  const START_ROW = 19;
+  const GOAL_ROW = 0;
+  const HOP_TIME = 0.18;
 
   const st = {
     row: START_ROW,
     hopFromRow: START_ROW,
     hopProgress: 1,
+    // Character's horizontal position — floats with logs
+    px: W/2,
+    // Reference to the log currently being ridden (null if on grass)
+    ridingLog: null,
+    // Store the offset from the log's left edge so the character stays put on the log
+    logOffsetX: 0,
     time: 0,
-    moveT: 0,
-    // Each row: 'grass' (safe) or 'river' (logs)
     rowTypes: [],
-    // Logs per river row: array of {x, w, vx}
     logs: [],
-    // Rows that have been "resting spots" (grass)
     restingRows: [],
     ended: false,
     hurtF: 0,
@@ -1597,29 +1582,10 @@ function Level6(){
     keys:{left:false,right:false,up:false,down:false,jump:false}
   };
 
-  // Build row types: alternate grass / river, with enough resting spots
-  // Pattern: grass, river, river, grass, river, river, river, grass, river, river, grass, river, river, grass, river, river, river, grass, river, grass(goal)
   const pattern = [
-    'goal',   // 0
-    'river',  // 1
-    'river',  // 2
-    'grass',  // 3
-    'river',  // 4
-    'river',  // 5
-    'grass',  // 6
-    'river',  // 7
-    'river',  // 8
-    'river',  // 9
-    'grass',  // 10
-    'river',  // 11
-    'river',  // 12
-    'grass',  // 13
-    'river',  // 14
-    'river',  // 15
-    'grass',  // 16
-    'river',  // 17
-    'river',  // 18
-    'start'   // 19
+    'goal','river','river','grass','river','river','grass',
+    'river','river','river','grass','river','river','grass',
+    'river','river','grass','river','river','start'
   ];
   for(let r=0;r<ROWS;r++){
     st.rowTypes[r] = pattern[r];
@@ -1628,28 +1594,27 @@ function Level6(){
     }
   }
 
-  // Initialize logs for each river row
   function initLogs(){
     st.logs = [];
     for(let r=0;r<ROWS;r++){
       if(st.rowTypes[r] !== 'river') continue;
-      // Each river row gets 3-4 logs spaced out
       const dir = (r % 2 === 0) ? 1 : -1;
-      const speed = 50 + (ROWS - r) * 4; // faster near top
+      const speed = 50 + (ROWS - r) * 4;
       const numLogs = 3;
       for(let i=0;i<numLogs;i++){
         const w = TILE * (2 + Math.random());
         const x = (W / numLogs) * i + Math.random() * 40;
-        st.logs.push({ row: r, x, w, vx: dir * speed, baseX: x });
+        st.logs.push({ row: r, x, w, vx: dir * speed });
       }
     }
   }
   initLogs();
 
-  function findLogUnder(row){
+  // Find log under character's current x position
+  function findLogUnder(row, px){
     for(const log of st.logs){
       if(log.row !== row) continue;
-      if(log.x < W/2 + 16 && log.x + log.w > W/2 - 16) return log;
+      if(px >= log.x && px <= log.x + log.w) return log;
     }
     return null;
   }
@@ -1662,7 +1627,8 @@ function Level6(){
     st.hopFromRow = st.row;
     st.row = newRow;
     st.hopProgress = 0;
-    st.moveT = 0;
+    // Clear riding log when hopping
+    st.ridingLog = null;
     if(st.row < st.furthestRow) st.furthestRow = st.row;
   }
 
@@ -1670,14 +1636,15 @@ function Level6(){
     st.hurtF = 1;
     st.invuln = 1.5;
     if(loseLife()){ st.ended = true; return; }
-    // Respawn at last safe row
+    // Respawn at last safe (grass) row
     let safeRow = st.row;
     while(safeRow < ROWS && st.rowTypes[safeRow] === 'river') safeRow++;
     if(safeRow >= ROWS) safeRow = START_ROW;
     st.row = safeRow;
     st.hopFromRow = safeRow;
     st.hopProgress = 1;
-    st.moveT = 0;
+    st.px = W/2;
+    st.ridingLog = null;
   }
 
   const onKD = (e)=>{
@@ -1712,29 +1679,50 @@ function Level6(){
         if(log.vx < 0 && log.x + log.w < -40) log.x = W + 20;
       }
 
-      // If on a river row and not hopping, check for log under player
+      // --- FLOATING LOG LOGIC ---
+      // Once hop is done and we're on a river row, follow the log we're on
       if(st.hopProgress >= 1 && st.rowTypes[st.row] === 'river'){
-        const log = findLogUnder(st.row);
-        if(!log && st.invuln <= 0){
-          drown();
-          return;
+        if(!st.ridingLog){
+          // Just landed on river — find a log under our feet
+          const log = findLogUnder(st.row, st.px);
+          if(log){
+            st.ridingLog = log;
+            st.logOffsetX = st.px - log.x;
+          }
         }
-        // Player rides the log horizontally
-        if(log){
-          // Visual only — player stays at W/2, log moves under
+        if(st.ridingLog){
+          // Follow the log
+          if(st.ridingLog.row !== st.row){
+            // Log moved to another row (shouldn't happen, but safety)
+            st.ridingLog = null;
+          } else {
+            st.px = st.ridingLog.x + st.logOffsetX;
+            // If log carries us off-screen, drown
+            if(st.px < -10 || st.px > W + 10){
+              if(st.invuln <= 0){ drown(); return; }
+            }
+          }
+        } else {
+          // No log under feet — drown
+          if(st.invuln <= 0){ drown(); return; }
         }
+      } else if(st.hopProgress >= 1 && st.rowTypes[st.row] !== 'river'){
+        // On grass — clear riding state, reset x to center smoothly
+        st.ridingLog = null;
+        const dx = (W/2) - st.px;
+        st.px += dx * Math.min(1, dt * 8);
+        if(Math.abs(dx) < 0.5) st.px = W/2;
       }
 
       // Reached goal
       if(st.row === GOAL_ROW && st.hopProgress >= 1 && !wonThisSession){
         st.ended = true;
-        FX.spawn(W/2, 70, 30, '#64ffb4', {speed: 220, life: 1.0});
-        FX.spawn(W/2, 70, 20, '#ffd700', {speed: 180, life: 1.0});
+        FX.spawn(st.px, 70, 30, '#64ffb4', {speed: 220, life: 1.0});
+        FX.spawn(st.px, 70, 20, '#ffd700', {speed: 180, life: 1.0});
         completeLevel();
       }
     },
     draw(ctx){
-      // Sky gradient
       const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
       skyGrad.addColorStop(0, '#1a1040');
       skyGrad.addColorStop(0.5, '#2a1a5e');
@@ -1742,7 +1730,6 @@ function Level6(){
       ctx.fillStyle = skyGrad;
       ctx.fillRect(0, 0, W, H);
 
-      // Moving pixel clouds (background)
       ctx.fillStyle = 'rgba(200,190,255,.1)';
       for(let i=0;i<6;i++){
         const x = (i*120 + performance.now()*0.03) % (W+150) - 75;
@@ -1752,19 +1739,16 @@ function Level6(){
         ctx.fillRect(x - s*3, y, s*6, s*2);
       }
 
-      // Draw each row
       for(let r=0;r<ROWS;r++){
         const y = r * TILE;
         const type = st.rowTypes[r];
         if(type === 'river'){
-          // River
           const grad = ctx.createLinearGradient(0, y, 0, y+TILE);
           grad.addColorStop(0, '#3a7ca5');
           grad.addColorStop(0.5, '#4a90b8');
           grad.addColorStop(1, '#356e94');
           ctx.fillStyle = grad;
           ctx.fillRect(0, y, W, TILE);
-          // Waves
           ctx.strokeStyle = 'rgba(180,220,255,.25)';
           ctx.lineWidth = 1;
           for(let i=0;i<2;i++){
@@ -1777,13 +1761,11 @@ function Level6(){
             ctx.stroke();
           }
         } else if(type === 'goal'){
-          // Goal — Field of Happiness
           const grad = ctx.createLinearGradient(0, y, 0, y+TILE);
           grad.addColorStop(0, '#64ffb4');
           grad.addColorStop(1, '#3acc8a');
           ctx.fillStyle = grad;
           ctx.fillRect(0, y, W, TILE);
-          // Flowers
           for(let x=20;x<W;x+=60){
             ctx.fillStyle = '#ff6688';
             ctx.beginPath(); ctx.arc(x, y+16, 4, 0, Math.PI*2); ctx.fill();
@@ -1795,7 +1777,6 @@ function Level6(){
           ctx.textAlign = 'center';
           ctx.fillText('🌈 FIELD OF HAPPINESS 🌈', W/2, y+20);
         } else if(type === 'start'){
-          // Start — grass
           const grad = ctx.createLinearGradient(0, y, 0, y+TILE);
           grad.addColorStop(0, '#6ab04c');
           grad.addColorStop(1, '#5a9e3f');
@@ -1806,20 +1787,17 @@ function Level6(){
           ctx.textAlign = 'center';
           ctx.fillText('▶ START', W/2, y+20);
         } else {
-          // Grass resting spot
           const grad = ctx.createLinearGradient(0, y, 0, y+TILE);
           grad.addColorStop(0, '#6ab04c');
           grad.addColorStop(1, '#5a9e3f');
           ctx.fillStyle = grad;
           ctx.fillRect(0, y, W, TILE);
-          // Grass blades
           ctx.strokeStyle = 'rgba(0,0,0,.12)';
           ctx.lineWidth = 1;
           for(let x=10;x<W;x+=26){
             ctx.beginPath(); ctx.moveTo(x, y+28); ctx.lineTo(x+2, y+22); ctx.stroke();
             ctx.beginPath(); ctx.moveTo(x+6, y+28); ctx.lineTo(x+5, y+20); ctx.stroke();
           }
-          // Small flower
           ctx.fillStyle = '#ffd700';
           ctx.beginPath(); ctx.arc(W/2, y+16, 3, 0, Math.PI*2); ctx.fill();
         }
@@ -1829,41 +1807,35 @@ function Level6(){
       for(const log of st.logs){
         const y = log.row * TILE + 4;
         const h = TILE - 8;
-        // Shadow
         ctx.fillStyle = 'rgba(0,0,0,.25)';
         ctx.fillRect(log.x + 2, y + 3, log.w, h);
-        // Body
         const grad = ctx.createLinearGradient(0, y, 0, y+h);
         grad.addColorStop(0, '#a0623a');
         grad.addColorStop(0.5, '#8b5228');
         grad.addColorStop(1, '#6b3a18');
         ctx.fillStyle = grad;
         ctx.fillRect(log.x, y, log.w, h);
-        // Rings
         ctx.fillStyle = '#c8845a';
         ctx.beginPath(); ctx.ellipse(log.x + 4, y + h/2, 3, h/2 - 2, 0, 0, Math.PI*2); ctx.fill();
         ctx.beginPath(); ctx.ellipse(log.x + log.w - 4, y + h/2, 3, h/2 - 2, 0, 0, Math.PI*2); ctx.fill();
-        // Moss
         ctx.fillStyle = '#4a8a3a';
         ctx.fillRect(log.x + 6, y, log.w - 12, 3);
       }
 
-      // Player — always at W/2, moving vertically between rows
+      // Player — uses st.px for horizontal position (floats with log)
       const fromY = st.hopFromRow * TILE + TILE/2;
       const toY = st.row * TILE + TILE/2;
       const t = st.hopProgress;
       const hopLift = Math.sin(t * Math.PI) * 12;
       const drawY = fromY + (toY - fromY) * t - hopLift;
 
-      // Shadow
       ctx.fillStyle = 'rgba(0,0,0,.3)';
       ctx.beginPath();
-      ctx.ellipse(W/2, toY + 12, 14, 4, 0, 0, Math.PI*2);
+      ctx.ellipse(st.px, toY + 12, 14, 4, 0, 0, Math.PI*2);
       ctx.fill();
 
-      // Character
       ctx.save();
-      ctx.translate(W/2, drawY);
+      ctx.translate(st.px, drawY);
       if(st.invuln > 0 && Math.floor(st.time*10)%2 === 0) ctx.globalAlpha = 0.5;
       const img = (st.hurtF > 0 && A.hurt) ? A.hurt : A.still;
       if(img) ctx.drawImage(img, -20, -20, 40, 40);
@@ -1873,7 +1845,6 @@ function Level6(){
       }
       ctx.restore();
 
-      // HUD
       const crossed = Math.max(0, START_ROW - st.row);
       ctx.fillStyle = '#e0d8ff';
       ctx.font = 'bold 14px Courier New';
@@ -1887,7 +1858,6 @@ function Level6(){
         ctx.fillRect(0, 0, W, H);
       }
 
-      // Hint
       if(st.time < 4){
         ctx.fillStyle = `rgba(224,216,255,${0.5 + Math.sin(st.time*4)*0.3})`;
         ctx.font = 'bold 12px Courier New';
