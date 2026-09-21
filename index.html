@@ -58,6 +58,10 @@
   @keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
   .speaker{font-size:3em;margin-bottom:12px;animation:shake .6s infinite}
   @keyframes shake{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(6deg)}}
+  .music-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:12px;max-width:460px}
+  .music-btn{padding:8px 14px;border:2px solid #7b68ee;background:rgba(123,104,238,.2);color:#e0d8ff;border-radius:6px;font-family:inherit;font-size:12px;font-weight:bold;cursor:pointer;letter-spacing:1px}
+  .music-btn.playing{background:#ffd700;color:#1a1040;border-color:#ffd700;box-shadow:0 0 12px #ffd700}
+  .music-btn:active{transform:scale(.95)}
 </style>
 </head>
 <body>
@@ -88,7 +92,6 @@
 const W = 480, H = 640;
 const API = 'https://script.google.com/macros/s/AKfycbyiZJwtCwv8ogplxQx5xlL7nERISw0hxSdViNN3UBsdp_dXFfSrKPOA1ah52BeMFLeW/exec';
 
-// Each level: you need `target` actions to complete it and earn `reward` points
 const LEVEL_GOALS = {
   0: { target: 7,  reward: 7,  label: 'Pipes' },
   1: { target: 7,  reward: 7,  label: 'Princess' },
@@ -100,6 +103,7 @@ const LEVEL_GOALS = {
 };
 
 const LEVEL_ICONS = ['🐦','🍄','🐍','💃','🎰','⛵','🏠'];
+const LEVEL_NAMES = ['Flappy','Princess','Hacker','Dance','777','River','Home'];
 
 // ============================================================
 // DOM
@@ -337,12 +341,67 @@ function showMenu(){
     <p>7 lives per level · 7 mini games</p>
     <div class="grid">${grid}</div>
     <p style="margin-top:14px;font-size:.75em">Earn 7 points in a level to unlock the next</p>
+    <div class="btn-row" style="margin-top:12px">
+      <button class="obtn" id="btn-jukebox">🎵 JUKEBOX</button>
+    </div>
   `);
 
   overlayEl.querySelectorAll('.lvl').forEach(el=>{
     if(el.classList.contains('locked')) return;
     el.addEventListener('click', ()=>startLevel(parseInt(el.dataset.lvl)));
   });
+  document.getElementById('btn-jukebox').addEventListener('click', showJukebox);
+}
+
+// ---- Jukebox (music player) ----
+let jukeboxTimer = null;
+function showJukebox(){
+  G.screen = 'jukebox';
+  stopAllMusic();
+  hudEl.classList.add('hidden');
+  touchEl.classList.add('hidden');
+  destroyLevel();
+  releaseAllButtons();
+
+  const tracks = [
+    {n:1, name:'Level 1 — Flappy'},
+    {n:2, name:'Level 2 — Princess'},
+    {n:3, name:'Level 3 — Hacker'},
+    {n:4, name:'Level 4 — Dance'},
+    {n:5, name:'Level 5 — 777'},
+    {n:6, name:'Level 6 — River'},
+    {n:7, name:'Level 7 — Home'}
+  ];
+  const btnHtml = tracks.map(t =>
+    `<button class="music-btn" data-track="${t.n}">♪ ${t.name}</button>`
+  ).join('');
+
+  showOverlay(`
+    <h2>🎵 JUKEBOX</h2>
+    <p>Listen to the soundtracks</p>
+    <div class="music-row">${btnHtml}</div>
+    <div class="btn-row" style="margin-top:16px">
+      <button class="obtn" id="btn-stop">⏹ STOP</button>
+      <button class="obtn" id="btn-back">BACK TO MENU</button>
+    </div>
+  `);
+
+  let currentBtn = null;
+  overlayEl.querySelectorAll('.music-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const n = parseInt(btn.dataset.track);
+      stopAllMusic();
+      if(currentBtn) currentBtn.classList.remove('playing');
+      playMusic(n, true);
+      currentBtn = btn;
+      btn.classList.add('playing');
+    });
+  });
+  document.getElementById('btn-stop').addEventListener('click', ()=>{
+    stopAllMusic();
+    if(currentBtn){ currentBtn.classList.remove('playing'); currentBtn = null; }
+  });
+  document.getElementById('btn-back').addEventListener('click', showMenu);
 }
 
 // ---- Complete ----
@@ -363,6 +422,7 @@ function showComplete(firstTime = true){
   const rewardText = firstTime
     ? `+${reward} points! Total: ${G.points}`
     : `Already beaten — Total: ${G.points}`;
+  const musicBtn = `<button class="obtn" id="btn-music">🎵 LISTEN</button>`;
 
   showOverlay(`
     <h2>LEVEL ${levelIdx+1} COMPLETE!</h2>
@@ -371,13 +431,39 @@ function showComplete(firstTime = true){
     <div class="btn-row">
       ${keepBtn}
       ${nextBtn}
+      ${musicBtn}
       <button class="obtn" id="btn-menu">MENU</button>
     </div>
+    <div id="music-panel" style="margin-top:14px;display:none"></div>
   `);
 
   if(!isLast) document.getElementById('btn-keep').addEventListener('click', ()=>startLevel(levelIdx));
   if(hasNext) document.getElementById('btn-next').addEventListener('click', ()=>startLevel(nextIdx));
   document.getElementById('btn-menu').addEventListener('click', showMenu);
+
+  // Listen to this level's soundtrack
+  document.getElementById('btn-music').addEventListener('click', ()=>{
+    const panel = document.getElementById('music-panel');
+    if(panel.style.display === 'none'){
+      panel.style.display = 'block';
+      panel.innerHTML = `
+        <p style="color:#ffd700;margin-bottom:8px">♪ Now playing: Level ${levelIdx+1}</p>
+        <div class="btn-row">
+          <button class="obtn yellow" id="btn-replay">▶ REPLAY</button>
+          <button class="obtn red" id="btn-stop">⏹ STOP</button>
+        </div>
+      `;
+      playMusic(levelIdx + 1, true);
+      document.getElementById('btn-replay').addEventListener('click', ()=>playMusic(levelIdx + 1, true));
+      document.getElementById('btn-stop').addEventListener('click', ()=>{
+        stopAllMusic();
+        panel.style.display = 'none';
+      });
+    } else {
+      stopAllMusic();
+      panel.style.display = 'none';
+    }
+  });
 }
 
 // ---- Game Over ----
@@ -437,7 +523,7 @@ function startLevel(idx){
   hudEl.classList.remove('hidden');
 
   // Touch controls
-  const needsDpad = idx === 1 || idx === 5 || idx === 6;
+  const needsDpad = idx === 1 || idx === 6;
   if(needsDpad){
     touchEl.classList.remove('hidden');
     jumpBtnEl.style.display = (idx === 1 ? 'flex' : 'none');
@@ -446,11 +532,9 @@ function startLevel(idx){
     jumpBtnEl.style.display = 'none';
   }
 
-  // Reset lives
   G.lives = 7;
   refreshHUD();
 
-  // Play music (Level 7 plays only when phone is picked)
   if(idx !== 6) playMusic(idx + 1, true);
 
   L = LEVEL_FACTORIES[idx]();
@@ -465,9 +549,6 @@ function destroyLevel(){
   L = null;
 }
 
-// ============================================================
-// COMPLETE LEVEL — awards points and unlocks next
-// ============================================================
 function completeLevel(){
   if(G.screen !== 'playing') return;
   if(wonThisSession) return;
@@ -513,7 +594,6 @@ function loop(t){
     try{ if(L.update) L.update(dt); }catch(e){ console.error('update', e); }
   }
 
-  // JRPG indigo background
   const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
   bgGrad.addColorStop(0, '#1a1040');
   bgGrad.addColorStop(0.5, '#2a1a5e');
@@ -521,7 +601,6 @@ function loop(t){
   ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, W, H);
 
-  // Global moving pixel clouds
   drawGlobalClouds(ctx);
 
   if(G.screen === 'playing' && L){
@@ -537,7 +616,6 @@ function loop(t){
 }
 requestAnimationFrame(loop);
 
-// JRPG pixel clouds
 const globalClouds = [];
 for(let i=0;i<8;i++){
   globalClouds.push({
@@ -605,7 +683,7 @@ canvas.addEventListener('contextmenu', e=>e.preventDefault());
 document.addEventListener('touchmove', e=>{ if(e.target === canvas) e.preventDefault(); }, {passive:false});
 
 // ============================================================
-// LEVEL 1: FLAPPY — 7 points to complete, infinite play after
+// LEVEL 1: FLAPPY
 // ============================================================
 function Level1(){
   const GRAV = 1300, FLAP = -380, PIPE_W = 62, GAP = 168, SPEED = 170;
@@ -668,7 +746,6 @@ function Level1(){
           st.passed++;
           st.combo++;
           FX.spawn(st.bird.x, st.bird.y, 6, '#ffd700', {speed: 100, life: 0.5});
-          // Complete at 7 pipes — but only once
           if(st.passed >= TARGET && !wonThisSession){
             completeLevel();
             return;
@@ -750,12 +827,13 @@ function Level1(){
 }
 
 // ============================================================
-// LEVEL 2: PLATFORMER — with pitfall at bottom
+// LEVEL 2: PLATFORMER — endless void at bottom (no bottom floor)
 // ============================================================
 function Level2(){
   const GRAV = 1000, MOVE = 215, JUMP = -435, LEVEL_W = 2400;
   const st = {
     p:{ x:50, y:400, vx:0, vy:0, onGround:false, facing:1, anim:0, animT:0, mode:'idle' },
+    // NO bottom floor platform — endless void
     platforms:[
       {x:0,    y:500, w:330, h:20},
       {x:390,  y:450, w:150, h:20},
@@ -767,8 +845,7 @@ function Level2(){
       {x:1560, y:450, w:230, h:20},
       {x:1830, y:400, w:150, h:20},
       {x:2030, y:350, w:100, h:20},
-      {x:2160, y:500, w:240, h:20},
-      {x:0,    y:520, w:LEVEL_W, h:140}
+      {x:2160, y:500, w:240, h:20}
     ],
     enemies:[
       {x:430,  y:420, w:30,h:30, min:390, max:490, dir:1,  spd:70,  alive:true},
@@ -854,7 +931,7 @@ function Level2(){
         }
       }
 
-      // PITFALL
+      // ENDLESS VOID — if player falls below screen, they die
       if(st.p.y > H + 50){
         if(pitfall()) return;
         return;
@@ -900,9 +977,10 @@ function Level2(){
       const g = ctx.createLinearGradient(0,0,0,H);
       g.addColorStop(0,'#1a1040');
       g.addColorStop(.6,'#2a1a5e');
-      g.addColorStop(1,'#3a2a7e');
+      g.addColorStop(1,'#0a0520'); // darker at bottom to imply void
       ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
 
+      // Moving pixel clouds
       ctx.fillStyle = 'rgba(200,190,255,.08)';
       for(let i=0;i<5;i++){
         const x = (i*170 + performance.now()*0.03) % (W+180) - 90;
@@ -912,6 +990,13 @@ function Level2(){
         ctx.fillRect(x - s*3, y, s*6, s*2);
         ctx.fillRect(x - s, y - s*2, s*2, s*2);
       }
+
+      // Void warning at bottom
+      const voidGrad = ctx.createLinearGradient(0, H-80, 0, H);
+      voidGrad.addColorStop(0, 'rgba(255,100,100,0)');
+      voidGrad.addColorStop(1, 'rgba(255,50,50,0.15)');
+      ctx.fillStyle = voidGrad;
+      ctx.fillRect(0, H-80, W, 80);
 
       ctx.save();
       ctx.translate(-st.camX, 0);
@@ -992,11 +1077,6 @@ function Level2(){
       ctx.fillText(`ROAD TO HAPPINESS · Stomped ${st.killed}/7`, W/2, 14);
       ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
 
-      if(st.p.y > H - 100 && st.p.x > 100){
-        ctx.fillStyle = `rgba(255,100,100,${0.2 + Math.sin(st.time*8)*0.1})`;
-        ctx.fillRect(0, H-40, W, 40);
-      }
-
       if(st.hurtF > 0){
         ctx.fillStyle = `rgba(255,100,100,${st.hurtF*0.3})`;
         ctx.fillRect(0,0,W,H);
@@ -1021,7 +1101,7 @@ function Level2(){
 }
 
 // ============================================================
-// LEVEL 3: SNAKE — FIXED food collision
+// LEVEL 3: SNAKE
 // ============================================================
 function Level3(){
   const GRID = 20, COLS = Math.floor(W/GRID), ROWS = Math.floor((H-60)/GRID);
@@ -1093,7 +1173,6 @@ function Level3(){
 
       st.snake.unshift(head);
 
-      // FIXED food collision — exact integer match
       const ateFood = (head.x === st.food.x && head.y === st.food.y);
       if(ateFood){
         st.collected++;
@@ -1488,41 +1567,130 @@ function Level5(){
 }
 
 // ============================================================
-// LEVEL 6: BOAT
+// LEVEL 6: RIVER CROSSING — only up/down (forward/back)
 // ============================================================
 function Level6(){
-  const SPEED = 170, AUTO = 48;
+  // Grid: 15 columns × 20 rows. Top row = goal.
+  const COLS = 15, ROWS = 20;
+  const TILE = 32;
+  const START_ROW = 19;          // bottom
+  const GOAL_ROW = 0;            // top
+  const MOVE_INTERVAL = 0.22;    // seconds between auto-moves
+  const HOP_TIME = 0.18;         // visual hop duration
+
   const st = {
-    boat:{ x:W/2, y:H-80 },
-    streams:[], obstacles:[],
-    invuln:0, hurtF:0, time:0, ended:false, streamsPassed:0,
+    row: START_ROW,
+    hopFromRow: START_ROW,
+    hopProgress: 1,
+    time: 0,
+    moveT: 0,
+    // Each row: 'grass' (safe) or 'river' (logs)
+    rowTypes: [],
+    // Logs per river row: array of {x, w, vx}
+    logs: [],
+    // Rows that have been "resting spots" (grass)
+    restingRows: [],
+    ended: false,
+    hurtF: 0,
+    invuln: 0,
+    furthestRow: START_ROW,
     keys:{left:false,right:false,up:false,down:false,jump:false}
   };
-  for(let i=0;i<7;i++){
-    st.streams.push({
-      y: H - 100 - i*72,
-      dir: i%2===0 ? 1 : -1,
-      speed: 90 + i*22,
-      spawnT: 0,
-      interval: Math.max(0.5, 1.15 - i*0.09)
-    });
+
+  // Build row types: alternate grass / river, with enough resting spots
+  // Pattern: grass, river, river, grass, river, river, river, grass, river, river, grass, river, river, grass, river, river, river, grass, river, grass(goal)
+  const pattern = [
+    'goal',   // 0
+    'river',  // 1
+    'river',  // 2
+    'grass',  // 3
+    'river',  // 4
+    'river',  // 5
+    'grass',  // 6
+    'river',  // 7
+    'river',  // 8
+    'river',  // 9
+    'grass',  // 10
+    'river',  // 11
+    'river',  // 12
+    'grass',  // 13
+    'river',  // 14
+    'river',  // 15
+    'grass',  // 16
+    'river',  // 17
+    'river',  // 18
+    'start'   // 19
+  ];
+  for(let r=0;r<ROWS;r++){
+    st.rowTypes[r] = pattern[r];
+    if(pattern[r] === 'grass' || pattern[r] === 'start' || pattern[r] === 'goal'){
+      st.restingRows.push(r);
+    }
   }
+
+  // Initialize logs for each river row
+  function initLogs(){
+    st.logs = [];
+    for(let r=0;r<ROWS;r++){
+      if(st.rowTypes[r] !== 'river') continue;
+      // Each river row gets 3-4 logs spaced out
+      const dir = (r % 2 === 0) ? 1 : -1;
+      const speed = 50 + (ROWS - r) * 4; // faster near top
+      const numLogs = 3;
+      for(let i=0;i<numLogs;i++){
+        const w = TILE * (2 + Math.random());
+        const x = (W / numLogs) * i + Math.random() * 40;
+        st.logs.push({ row: r, x, w, vx: dir * speed, baseX: x });
+      }
+    }
+  }
+  initLogs();
+
+  function findLogUnder(row){
+    for(const log of st.logs){
+      if(log.row !== row) continue;
+      if(log.x < W/2 + 16 && log.x + log.w > W/2 - 16) return log;
+    }
+    return null;
+  }
+
+  function hop(dir){
+    if(st.ended || G.screen !== 'playing') return;
+    if(st.hopProgress < 1) return;
+    const newRow = st.row + dir;
+    if(newRow < 0 || newRow >= ROWS) return;
+    st.hopFromRow = st.row;
+    st.row = newRow;
+    st.hopProgress = 0;
+    st.moveT = 0;
+    if(st.row < st.furthestRow) st.furthestRow = st.row;
+  }
+
+  function drown(){
+    st.hurtF = 1;
+    st.invuln = 1.5;
+    if(loseLife()){ st.ended = true; return; }
+    // Respawn at last safe row
+    let safeRow = st.row;
+    while(safeRow < ROWS && st.rowTypes[safeRow] === 'river') safeRow++;
+    if(safeRow >= ROWS) safeRow = START_ROW;
+    st.row = safeRow;
+    st.hopFromRow = safeRow;
+    st.hopProgress = 1;
+    st.moveT = 0;
+  }
+
   const onKD = (e)=>{
     if(G.screen !== 'playing') return;
-    if(e.key==='ArrowLeft'||e.key==='a') st.keys.left = true;
-    if(e.key==='ArrowRight'||e.key==='d') st.keys.right = true;
-    if(e.key==='ArrowUp'||e.key==='w') st.keys.up = true;
-    if(e.key==='ArrowDown'||e.key==='s') st.keys.down = true;
+    if(e.key==='ArrowUp'||e.key==='w'||e.key===' '){ e.preventDefault(); if(!e.repeat) hop(-1); }
+    if(e.key==='ArrowDown'||e.key==='s'){ e.preventDefault(); if(!e.repeat) hop(1); }
   };
-  const onKU = (e)=>{
-    if(e.key==='ArrowLeft'||e.key==='a') st.keys.left = false;
-    if(e.key==='ArrowRight'||e.key==='d') st.keys.right = false;
-    if(e.key==='ArrowUp'||e.key==='w') st.keys.up = false;
-    if(e.key==='ArrowDown'||e.key==='s') st.keys.down = false;
-  };
+  const onKU = (e)=>{};
 
   return {
     keys: st.keys,
+    hopUp(){ hop(-1); },
+    hopDown(){ hop(1); },
     init(){
       document.addEventListener('keydown', onKD);
       document.addEventListener('keyup', onKU);
@@ -1530,123 +1698,201 @@ function Level6(){
     update(dt){
       if(G.screen !== 'playing' || st.ended) return;
       st.time += dt;
-      st.invuln = Math.max(0, st.invuln - dt);
       st.hurtF = Math.max(0, st.hurtF - dt*3);
+      st.invuln = Math.max(0, st.invuln - dt);
 
-      if(st.keys.left)  st.boat.x -= SPEED*dt;
-      if(st.keys.right) st.boat.x += SPEED*dt;
-      if(st.keys.up)    st.boat.y -= SPEED*dt;
-      if(st.keys.down)  st.boat.y += SPEED*dt;
-      st.boat.y -= AUTO*dt;
-      st.boat.x = Math.max(20, Math.min(W-20, st.boat.x));
-      st.boat.y = Math.max(50, Math.min(H-40, st.boat.y));
+      if(st.hopProgress < 1){
+        st.hopProgress = Math.min(1, st.hopProgress + dt / HOP_TIME);
+      }
 
-      for(const s of st.streams){
-        s.spawnT += dt;
-        if(s.spawnT > s.interval){
-          s.spawnT = 0;
-          st.obstacles.push({
-            x: s.dir > 0 ? -30 : W+30,
-            y: s.y + 12, w:32, h:32,
-            vx: s.dir * s.speed
-          });
+      // Move logs
+      for(const log of st.logs){
+        log.x += log.vx * dt;
+        if(log.vx > 0 && log.x > W + 40) log.x = -log.w - 20;
+        if(log.vx < 0 && log.x + log.w < -40) log.x = W + 20;
+      }
+
+      // If on a river row and not hopping, check for log under player
+      if(st.hopProgress >= 1 && st.rowTypes[st.row] === 'river'){
+        const log = findLogUnder(st.row);
+        if(!log && st.invuln <= 0){
+          drown();
+          return;
         }
-      }
-      for(let i=st.obstacles.length-1; i>=0; i--){
-        const o = st.obstacles[i];
-        o.x += o.vx*dt;
-        if(o.x < -60 || o.x > W+60) st.obstacles.splice(i,1);
-      }
-
-      if(st.invuln <= 0){
-        for(const o of st.obstacles){
-          if(st.boat.x+14 > o.x && st.boat.x-14 < o.x+o.w && st.boat.y+12 > o.y && st.boat.y-12 < o.y+o.h){
-            st.hurtF = 1; st.invuln = 1.4;
-            FX.spawn(st.boat.x, st.boat.y, 12, '#ff6688', {speed: 180, life: 0.6});
-            if(loseLife()){ st.ended = true; return; }
-            st.boat.y = Math.min(H-40, st.boat.y + 60);
-            break;
-          }
+        // Player rides the log horizontally
+        if(log){
+          // Visual only — player stays at W/2, log moves under
         }
       }
 
-      let passed = 0;
-      for(const s of st.streams){
-        if(st.boat.y < s.y - 20) passed++;
-      }
-      if(passed > st.streamsPassed){
-        st.streamsPassed = passed;
-        FX.spawn(st.boat.x, st.boat.y, 10, '#64ffb4', {speed: 160, life: 0.6});
-      }
-
-      if(st.boat.y < 60){
+      // Reached goal
+      if(st.row === GOAL_ROW && st.hopProgress >= 1 && !wonThisSession){
         st.ended = true;
-        if(!wonThisSession) completeLevel();
+        FX.spawn(W/2, 70, 30, '#64ffb4', {speed: 220, life: 1.0});
+        FX.spawn(W/2, 70, 20, '#ffd700', {speed: 180, life: 1.0});
+        completeLevel();
       }
     },
     draw(ctx){
-      const g = ctx.createLinearGradient(0,0,0,H);
-      g.addColorStop(0,'#1a1040'); g.addColorStop(1,'#2a1a5e');
-      ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+      // Sky gradient
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
+      skyGrad.addColorStop(0, '#1a1040');
+      skyGrad.addColorStop(0.5, '#2a1a5e');
+      skyGrad.addColorStop(1, '#3a2a7e');
+      ctx.fillStyle = skyGrad;
+      ctx.fillRect(0, 0, W, H);
 
-      ctx.fillStyle = 'rgba(200,190,255,.06)';
-      for(let i=0;i<5;i++){
-        const x = (i*160 + performance.now()*0.04) % (W+180) - 90;
-        const y = 30 + i*90;
-        const s = 7;
+      // Moving pixel clouds (background)
+      ctx.fillStyle = 'rgba(200,190,255,.1)';
+      for(let i=0;i<6;i++){
+        const x = (i*120 + performance.now()*0.03) % (W+150) - 75;
+        const y = 20 + i*70;
+        const s = 6;
         ctx.fillRect(x - s*2, y - s, s*4, s*2);
         ctx.fillRect(x - s*3, y, s*6, s*2);
       }
 
-      for(const s of st.streams){
-        ctx.fillStyle = 'rgba(123,104,238,.15)';
-        ctx.fillRect(0, s.y, W, 60);
-        ctx.strokeStyle = 'rgba(123,104,238,.4)'; ctx.lineWidth = 1;
-        for(let x=0;x<W;x+=24){
-          const yy = s.y + 12 + Math.sin((x + st.time*100*s.dir*0.05) * 0.1) * 3;
-          ctx.beginPath(); ctx.moveTo(x,yy); ctx.lineTo(x+24,yy); ctx.stroke();
+      // Draw each row
+      for(let r=0;r<ROWS;r++){
+        const y = r * TILE;
+        const type = st.rowTypes[r];
+        if(type === 'river'){
+          // River
+          const grad = ctx.createLinearGradient(0, y, 0, y+TILE);
+          grad.addColorStop(0, '#3a7ca5');
+          grad.addColorStop(0.5, '#4a90b8');
+          grad.addColorStop(1, '#356e94');
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, y, W, TILE);
+          // Waves
+          ctx.strokeStyle = 'rgba(180,220,255,.25)';
+          ctx.lineWidth = 1;
+          for(let i=0;i<2;i++){
+            ctx.beginPath();
+            const wy = y + 10 + i*12;
+            for(let x=0;x<=W;x+=12){
+              const yy = wy + Math.sin((x + st.time*60) * 0.08 + r) * 2;
+              if(x===0) ctx.moveTo(x, yy); else ctx.lineTo(x, yy);
+            }
+            ctx.stroke();
+          }
+        } else if(type === 'goal'){
+          // Goal — Field of Happiness
+          const grad = ctx.createLinearGradient(0, y, 0, y+TILE);
+          grad.addColorStop(0, '#64ffb4');
+          grad.addColorStop(1, '#3acc8a');
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, y, W, TILE);
+          // Flowers
+          for(let x=20;x<W;x+=60){
+            ctx.fillStyle = '#ff6688';
+            ctx.beginPath(); ctx.arc(x, y+16, 4, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#ffd700';
+            ctx.beginPath(); ctx.arc(x, y+16, 2, 0, Math.PI*2); ctx.fill();
+          }
+          ctx.fillStyle = '#1a1040';
+          ctx.font = 'bold 11px Courier New';
+          ctx.textAlign = 'center';
+          ctx.fillText('🌈 FIELD OF HAPPINESS 🌈', W/2, y+20);
+        } else if(type === 'start'){
+          // Start — grass
+          const grad = ctx.createLinearGradient(0, y, 0, y+TILE);
+          grad.addColorStop(0, '#6ab04c');
+          grad.addColorStop(1, '#5a9e3f');
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, y, W, TILE);
+          ctx.fillStyle = 'rgba(255,255,255,.5)';
+          ctx.font = 'bold 11px Courier New';
+          ctx.textAlign = 'center';
+          ctx.fillText('▶ START', W/2, y+20);
+        } else {
+          // Grass resting spot
+          const grad = ctx.createLinearGradient(0, y, 0, y+TILE);
+          grad.addColorStop(0, '#6ab04c');
+          grad.addColorStop(1, '#5a9e3f');
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, y, W, TILE);
+          // Grass blades
+          ctx.strokeStyle = 'rgba(0,0,0,.12)';
+          ctx.lineWidth = 1;
+          for(let x=10;x<W;x+=26){
+            ctx.beginPath(); ctx.moveTo(x, y+28); ctx.lineTo(x+2, y+22); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(x+6, y+28); ctx.lineTo(x+5, y+20); ctx.stroke();
+          }
+          // Small flower
+          ctx.fillStyle = '#ffd700';
+          ctx.beginPath(); ctx.arc(W/2, y+16, 3, 0, Math.PI*2); ctx.fill();
         }
       }
 
-      const fg = ctx.createLinearGradient(0,0,0,60);
-      fg.addColorStop(0,'#64ffb4'); fg.addColorStop(1,'rgba(100,255,180,.1)');
-      ctx.fillStyle = fg; ctx.fillRect(0,0,W,60);
-      ctx.fillStyle = '#1a1040'; ctx.font = 'bold 12px Courier New'; ctx.textAlign = 'center';
-      ctx.fillText('🌿 FIELD OF HAPPINESS 🌿', W/2, 24);
-
-      for(const o of st.obstacles){
-        ctx.fillStyle = '#ff6688'; ctx.fillRect(o.x, o.y, o.w, o.h);
-        ctx.fillStyle = '#8e2a4a'; ctx.fillRect(o.x+6, o.y+6, o.w-12, o.h-12);
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(o.x+8, o.y+12, 6, 6); ctx.fillRect(o.x+18, o.y+12, 6, 6);
+      // Draw logs
+      for(const log of st.logs){
+        const y = log.row * TILE + 4;
+        const h = TILE - 8;
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,.25)';
+        ctx.fillRect(log.x + 2, y + 3, log.w, h);
+        // Body
+        const grad = ctx.createLinearGradient(0, y, 0, y+h);
+        grad.addColorStop(0, '#a0623a');
+        grad.addColorStop(0.5, '#8b5228');
+        grad.addColorStop(1, '#6b3a18');
+        ctx.fillStyle = grad;
+        ctx.fillRect(log.x, y, log.w, h);
+        // Rings
+        ctx.fillStyle = '#c8845a';
+        ctx.beginPath(); ctx.ellipse(log.x + 4, y + h/2, 3, h/2 - 2, 0, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(log.x + log.w - 4, y + h/2, 3, h/2 - 2, 0, 0, Math.PI*2); ctx.fill();
+        // Moss
+        ctx.fillStyle = '#4a8a3a';
+        ctx.fillRect(log.x + 6, y, log.w - 12, 3);
       }
 
-      ctx.save();
-      ctx.translate(st.boat.x, st.boat.y);
-      if(st.invuln > 0 && Math.floor(st.time*10)%2 === 0) ctx.globalAlpha = 0.5;
-      ctx.shadowColor = '#7b68ee'; ctx.shadowBlur = 10;
-      ctx.fillStyle = '#4a3a8e';
+      // Player — always at W/2, moving vertically between rows
+      const fromY = st.hopFromRow * TILE + TILE/2;
+      const toY = st.row * TILE + TILE/2;
+      const t = st.hopProgress;
+      const hopLift = Math.sin(t * Math.PI) * 12;
+      const drawY = fromY + (toY - fromY) * t - hopLift;
+
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,.3)';
       ctx.beginPath();
-      ctx.moveTo(-22,12); ctx.lineTo(-16,-10); ctx.lineTo(16,-10); ctx.lineTo(22,12);
-      ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#7b68ee'; ctx.fillRect(-16, -10, 32, 6);
-      ctx.shadowBlur = 0;
+      ctx.ellipse(W/2, toY + 12, 14, 4, 0, 0, Math.PI*2);
+      ctx.fill();
+
+      // Character
+      ctx.save();
+      ctx.translate(W/2, drawY);
+      if(st.invuln > 0 && Math.floor(st.time*10)%2 === 0) ctx.globalAlpha = 0.5;
       const img = (st.hurtF > 0 && A.hurt) ? A.hurt : A.still;
-      if(img) ctx.drawImage(img, -13, -30, 26, 26);
+      if(img) ctx.drawImage(img, -20, -20, 40, 40);
+      else {
+        ctx.fillStyle = st.hurtF > 0 ? '#ff6688' : '#7b68ee';
+        ctx.fillRect(-18, -18, 36, 36);
+      }
       ctx.restore();
 
-      const p = Math.min(1, 1 - (st.boat.y - 50)/(H - 90));
-      ctx.fillStyle = 'rgba(26,16,64,.8)'; ctx.fillRect(W-180, 76, 168, 12);
-      ctx.strokeStyle = '#7b68ee'; ctx.lineWidth = 1; ctx.strokeRect(W-180, 76, 168, 12);
-      ctx.fillStyle = '#64ffb4'; ctx.fillRect(W-179, 77, 166*p, 10);
-      ctx.fillStyle = '#e0d8ff'; ctx.font = 'bold 12px Courier New'; ctx.textAlign = 'left';
-      ctx.shadowColor = '#1a1040'; ctx.shadowOffsetX = 1; ctx.shadowOffsetY = 1;
-      ctx.fillText(`Stream ${st.streamsPassed}/7`, 12, 84);
+      // HUD
+      const crossed = Math.max(0, START_ROW - st.row);
+      ctx.fillStyle = '#e0d8ff';
+      ctx.font = 'bold 14px Courier New';
+      ctx.textAlign = 'center';
+      ctx.shadowColor = '#1a1040'; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
+      ctx.fillText(`⛵ Crossings: ${crossed}/${START_ROW}`, W/2, 20);
       ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
 
       if(st.hurtF > 0){
-        ctx.fillStyle = `rgba(255,100,100,${st.hurtF*0.3})`;
-        ctx.fillRect(0,0,W,H);
+        ctx.fillStyle = `rgba(255,100,100,${st.hurtF * 0.3})`;
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      // Hint
+      if(st.time < 4){
+        ctx.fillStyle = `rgba(224,216,255,${0.5 + Math.sin(st.time*4)*0.3})`;
+        ctx.font = 'bold 12px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('▲ Forward   ▼ Back', W/2, H - 20);
       }
     },
     destroy(){
@@ -1657,7 +1903,7 @@ function Level6(){
 }
 
 // ============================================================
-// LEVEL 7: JRPG ROOM — final music screen
+// LEVEL 7: JRPG ROOM
 // ============================================================
 function Level7(){
   const TILE = 32;
@@ -1712,7 +1958,6 @@ function Level7(){
     st.ended = true;
     if(st.fallback) clearTimeout(st.fallback);
     if(st.hardCap) clearTimeout(st.hardCap);
-    // Award final reward and show The End
     if(!wonThisSession){
       wonThisSession = true;
       if(!G.completed[6]){
