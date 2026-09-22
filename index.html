@@ -66,6 +66,10 @@
   .music-btn{padding:8px 14px;border:2px solid #7b68ee;background:rgba(123,104,238,.2);color:#e0d8ff;border-radius:6px;font-family:inherit;font-size:12px;font-weight:bold;cursor:pointer;letter-spacing:1px}
   .music-btn.playing{background:#ffd700;color:#1a1040;border-color:#ffd700;box-shadow:0 0 12px #ffd700}
   .music-btn:active{transform:scale(.95)}
+  .story-box{max-width:400px;width:100%;white-space:pre-line;color:#e0d8ff;font-size:.92em;line-height:1.75;margin:6px 0 18px;padding:18px 20px;background:rgba(123,104,238,.1);border-left:3px solid #7b68ee;border-right:3px solid #7b68ee;border-radius:8px;animation:storyIn .6s ease both}
+  .story-box b{color:#ffd700;font-weight:bold}
+  #overlay .chap{color:#8878b8;font-size:.7em;letter-spacing:3px;margin-bottom:6px}
+  @keyframes storyIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 </style>
 </head>
 <body>
@@ -111,6 +115,23 @@ const LEVEL_GOALS = {
 };
 
 const LEVEL_ICONS = ['🐦','🍄','🐍','💃','🎰','⛵','🏠'];
+
+const LEVEL_STORY = {
+  0: { icon:'🐦', title:'The Hunt Begins',
+       text:'It starts with a dream.\n\nA hunt for something profound — the mirage named <b>happiness</b>.\n\nBut the hunt for happiness slips away.' },
+  1: { icon:'🍄', title:'So Close',
+       text:'Her hunt continues.\n\nSo close — yet it slips away.' },
+  2: { icon:'🐍', title:'The Hacker',
+       text:'Maybe you have to turn into a hacker.' },
+  3: { icon:'💃', title:'The Dance',
+       text:'Or maybe you have to dance.' },
+  4: { icon:'🎰', title:'The Wager',
+       text:'Or maybe try your luck.' },
+  5: { icon:'⛵', title:'The Sindhu',
+       text:'But you can only reach happiness after crossing the path of the <b>Sindhu</b> —\n\nand wake up to the real world.' },
+  6: { icon:'🏠', title:'Stay Blessed',
+       text:'True happiness can be found with the people around you.\n\nStay blessed.' }
+};
 
 // ============================================================
 // DOM
@@ -544,7 +565,7 @@ function showGameOver(){
       <button class="obtn" id="btn-menu">MENU</button>
     </div>
   `);
-  document.getElementById('btn-retry').addEventListener('click', ()=>startLevel(levelIdx));
+  document.getElementById('btn-retry').addEventListener('click', ()=>startLevel(levelIdx, true));
   document.getElementById('btn-menu').addEventListener('click', showMenu);
 }
 
@@ -571,10 +592,40 @@ function showFinalEnd(){
 // ============================================================
 // LEVEL FLOW
 // ============================================================
-function startLevel(idx){
+function startLevel(idx, skipStory){
   if(idx < 0 || idx > 6) return;
   if(!G.unlocked[idx]) return;
+  if(!skipStory && !G.completed[idx]){ showStory(idx); return; }
+  beginLevel(idx);
+}
 
+function showStory(idx){
+  G.screen = 'story';
+  hudEl.classList.add('hidden');
+  touchEl.classList.add('hidden');
+  riverControlsEl.classList.add('hidden');
+  jumpBtnEl.style.display = 'none';
+  destroyLevel();
+  releaseAllButtons();
+  stopAllMusic();
+  FX.reset();
+
+  const s = LEVEL_STORY[idx];
+  showOverlay(`
+    <p class="chap">CHAPTER ${idx+1}</p>
+    <div style="font-size:2.4em;line-height:1">${s.icon}</div>
+    <h2 style="font-size:1.25em;margin-top:8px">${s.title}</h2>
+    <div class="story-box">${s.text}</div>
+    <div class="btn-row">
+      <button class="obtn green" id="btn-begin">BEGIN ▸</button>
+      <button class="obtn" id="btn-menu">MENU</button>
+    </div>
+  `);
+  document.getElementById('btn-begin').addEventListener('click', ()=>beginLevel(idx));
+  document.getElementById('btn-menu').addEventListener('click', showMenu);
+}
+
+function beginLevel(idx){
   destroyLevel();
   levelIdx = idx;
   wonThisSession = false;
