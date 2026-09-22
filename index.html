@@ -188,15 +188,19 @@ let L = null;
 let wonThisSession = false;
 
 // ============================================================
-// GOOGLE SHEETS SYNC
+// GOOGLE SHEETS SYNC  (with timeout so it never hangs)
 // ============================================================
-async function apiGet(params){
+async function apiGet(params, timeoutMs = 3500){
   const q = new URLSearchParams(params).toString();
   const url = API + '?' + q;
+  const ctrl = new AbortController();
+  const timer = setTimeout(()=>ctrl.abort(), timeoutMs);
   try{
-    const res = await fetch(url, { method: 'GET' });
+    const res = await fetch(url, { method: 'GET', signal: ctrl.signal });
+    clearTimeout(timer);
     return await res.json();
   }catch(e){
+    clearTimeout(timer);
     console.warn('API error', e);
     return null;
   }
@@ -271,33 +275,39 @@ const FX = {
 };
 
 // ============================================================
-// ASSETS
+// ASSETS  (hard timeouts so loading can't hang)
 // ============================================================
 const A = { still:null, hurt:null, walk:[null,null,null], jump:[null,null,null], fall:[null,null,null], music:{} };
 
 function loadImg(src){
   return new Promise(res=>{
+    let done = false;
+    const finish = (v)=>{ if(done) return; done = true; res(v); };
     const i = new Image();
-    i.onload = ()=>res(i);
-    i.onerror = ()=>res(null);
+    i.onload  = ()=>finish(i);
+    i.onerror = ()=>finish(null);
     i.src = src;
+    setTimeout(()=>finish(null), 2500);
   });
 }
 function loadAudio(src){
   return new Promise(res=>{
+    let done = false;
+    const finish = (v)=>{ if(done) return; done = true; res(v); };
     const a = new Audio();
     a.preload = 'auto';
-    a.addEventListener('canplaythrough', ()=>res(a), {once:true});
-    a.addEventListener('error', ()=>res(null), {once:true});
+    a.addEventListener('canplaythrough', ()=>finish(a), {once:true});
+    a.addEventListener('loadeddata',     ()=>finish(a), {once:true});
+    a.addEventListener('error',          ()=>finish(null), {once:true});
     a.src = src;
-    setTimeout(()=>res(a), 2200);
+    setTimeout(()=>finish(a), 900);
   });
 }
 async function loadAssets(){
   const bar = document.querySelector('#overlay .bar>div');
-  const total = 14;
+  const total = 18;
   let done = 0;
-  const tick = ()=>{ done++; if(bar) bar.style.width = (done/total*100)+'%'; };
+  const tick = ()=>{ done++; if(bar) bar.style.width = Math.min(100,(done/total*100))+'%'; };
   const jobs = [];
   for(let i=1;i<=7;i++) jobs.push(loadAudio('l'+i+'.mp3').then(a=>{ A.music['l'+i] = a; tick(); }));
   jobs.push(loadImg('still.png').then(i=>{ A.still = i; tick(); }));
@@ -391,8 +401,17 @@ function showLoading(){
 }
 async function bootLoad(){
   showLoading();
+
+  let shown = false;
+  const failsafe = setTimeout(()=>{ if(!shown){ shown = true; showMenu(); } }, 5000);
+  const go = ()=>{ if(shown) return; shown = true; clearTimeout(failsafe); showMenu(); };
+
   try{ await loadAssets(); }catch(e){ console.error(e); }
-  loadPlayerFromCloud().finally(()=> showMenu());
+
+  // Cloud sync never blocks the menu
+  loadPlayerFromCloud().catch(()=>{}).finally(go);
+  // Show menu no later than 1.2s after assets finish
+  setTimeout(go, 1200);
 }
 
 function showMenu(){
@@ -520,7 +539,7 @@ function showComplete(firstTime = true){
     <div id="music-panel" style="margin-top:14px;display:none"></div>
   `);
 
-  if(!isLast) document.getElementById('btn-keep').addEventListener('click', ()=>startLevel(levelIdx));
+  if(!isLast) document.getElementById('btn-keep').addEventListener('click', ()=>startLevel(levelIdx, true));
   if(hasNext) document.getElementById('btn-next').addEventListener('click', ()=>startLevel(nextIdx));
   document.getElementById('btn-menu').addEventListener('click', showMenu);
 
@@ -640,15 +659,12 @@ function beginLevel(idx){
   jumpBtnEl.style.display = 'none';
 
   if(idx === 1){
-    // Level 2 — platformer: D-pad + JUMP
     touchEl.classList.remove('hidden');
     jumpBtnEl.style.display = 'flex';
     jumpBtnEl.textContent = 'JUMP';
   } else if(idx === 5){
-    // Level 6 — river: only up/down arrows
     riverControlsEl.classList.remove('hidden');
   } else if(idx === 6){
-    // Level 7 — JRPG room: D-pad + PICK
     touchEl.classList.remove('hidden');
     jumpBtnEl.style.display = 'flex';
     jumpBtnEl.textContent = 'PICK';
@@ -771,7 +787,6 @@ function bindBtn(el){
     e.stopPropagation();
     el.classList.add('active');
     if(L && L.keys) L.keys[key] = true;
-    // Special: the round button doubles as JUMP or PICK
     if(L && key === 'jump'){
       if(L.jump) L.jump();
       else if(L.pick) L.pick();
@@ -789,7 +804,6 @@ function bindBtn(el){
 }
 document.querySelectorAll('#touch .btn').forEach(bindBtn);
 
-// River buttons
 function bindRiverBtn(el, fnName){
   const press = (e)=>{
     e.preventDefault();
